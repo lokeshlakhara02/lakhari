@@ -240,10 +240,10 @@ export default function VideoChat() {
   useEffect(() => {
     if (!isConnected) return;
 
-    const handleWaitingForMatch = useCallback(() => {
+    const handleWaitingForMatch = () => {
       console.log('handleWaitingForMatch called');
       setConnectionStatus('waiting');
-    }, []);
+    };
 
     const handleMatchFound = async (data: any) => {
       console.log('handleMatchFound called with data:', data);
