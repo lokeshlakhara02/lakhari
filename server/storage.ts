@@ -1,5 +1,8 @@
-import { type ChatSession, type InsertChatSession, type Message, type InsertMessage, type OnlineUser, type InsertOnlineUser } from "@shared/schema";
+import { type ChatSession, type InsertChatSession, type Message, type InsertMessage, type OnlineUser, type InsertOnlineUser, chatSessions, messages, onlineUsers } from "@shared/schema";
 import { randomUUID } from "crypto";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
+import { eq, and, or, desc } from "drizzle-orm";
 
 export interface IStorage {
   // Chat sessions
@@ -69,8 +72,12 @@ export class MemStorage implements IStorage {
   async createMessage(insertMessage: InsertMessage): Promise<Message> {
     const id = randomUUID();
     const message: Message = {
-      ...insertMessage,
       id,
+      content: insertMessage.content,
+      sessionId: insertMessage.sessionId,
+      senderId: insertMessage.senderId,
+      attachments: insertMessage.attachments ?? null,
+      hasEmoji: insertMessage.hasEmoji ?? null,
       timestamp: new Date(),
     };
     this.messages.set(id, message);
@@ -141,4 +148,112 @@ export class MemStorage implements IStorage {
   }
 }
 
-export const storage = new MemStorage();
+// Database Storage Implementation
+export class DatabaseStorage implements IStorage {
+  private db: ReturnType<typeof drizzle>;
+
+  constructor() {
+    const connectionString = process.env.DATABASE_URL || 'postgresql://localhost:5432/omegle_revive';
+    const client = postgres(connectionString);
+    this.db = drizzle(client);
+  }
+
+  async createChatSession(insertSession: InsertChatSession): Promise<ChatSession> {
+    const sessionData = {
+      ...insertSession,
+      interests: insertSession.interests as string[] || []
+    };
+    const [session] = await this.db.insert(chatSessions).values(sessionData).returning();
+    return session;
+  }
+
+  async getChatSession(id: string): Promise<ChatSession | undefined> {
+    const [session] = await this.db.select().from(chatSessions).where(eq(chatSessions.id, id));
+    return session;
+  }
+
+  async updateChatSession(id: string, updates: Partial<ChatSession>): Promise<ChatSession | undefined> {
+    const [session] = await this.db.update(chatSessions)
+      .set(updates)
+      .where(eq(chatSessions.id, id))
+      .returning();
+    return session;
+  }
+
+  async deleteChatSession(id: string): Promise<void> {
+    await this.db.delete(chatSessions).where(eq(chatSessions.id, id));
+  }
+
+  async createMessage(insertMessage: InsertMessage): Promise<Message> {
+    const [message] = await this.db.insert(messages).values(insertMessage).returning();
+    return message;
+  }
+
+  async getMessagesBySession(sessionId: string): Promise<Message[]> {
+    return await this.db.select()
+      .from(messages)
+      .where(eq(messages.sessionId, sessionId))
+      .orderBy(desc(messages.timestamp));
+  }
+
+  async addOnlineUser(insertUser: InsertOnlineUser): Promise<OnlineUser> {
+    const userData = {
+      ...insertUser,
+      interests: insertUser.interests as string[] || []
+    };
+    const [user] = await this.db.insert(onlineUsers).values(userData).returning();
+    return user;
+  }
+
+  async removeOnlineUser(id: string): Promise<void> {
+    await this.db.delete(onlineUsers).where(eq(onlineUsers.id, id));
+  }
+
+  async getOnlineUser(id: string): Promise<OnlineUser | undefined> {
+    const [user] = await this.db.select().from(onlineUsers).where(eq(onlineUsers.id, id));
+    return user;
+  }
+
+  async getOnlineUserBySocket(socketId: string): Promise<OnlineUser | undefined> {
+    const [user] = await this.db.select().from(onlineUsers).where(eq(onlineUsers.socketId, socketId));
+    return user;
+  }
+
+  async updateOnlineUser(id: string, updates: Partial<OnlineUser>): Promise<OnlineUser | undefined> {
+    const [user] = await this.db.update(onlineUsers)
+      .set({ ...updates, lastSeen: new Date() })
+      .where(eq(onlineUsers.id, id))
+      .returning();
+    return user;
+  }
+
+  async getWaitingUsers(chatType: string, interests?: string[]): Promise<OnlineUser[]> {
+    let query = this.db.select().from(onlineUsers)
+      .where(and(
+        eq(onlineUsers.isWaiting, true),
+        eq(onlineUsers.chatType, chatType)
+      ));
+
+    const waitingUsers = await query;
+
+    if (!interests || interests.length === 0) {
+      return waitingUsers;
+    }
+
+    // Sort by number of matching interests (descending)
+    return waitingUsers.sort((a, b) => {
+      const aMatches = a.interests?.filter(interest => interests.includes(interest)).length || 0;
+      const bMatches = b.interests?.filter(interest => interests.includes(interest)).length || 0;
+      return bMatches - aMatches;
+    });
+  }
+
+  async getAllOnlineUsers(): Promise<OnlineUser[]> {
+    return await this.db.select().from(onlineUsers);
+  }
+}
+
+// Use database storage if DATABASE_URL is available, otherwise fall back to memory storage
+export const storage = process.env.DATABASE_URL 
+  ? new DatabaseStorage() 
+  : new MemStorage();

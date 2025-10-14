@@ -19,6 +19,8 @@ export const messages = pgTable("messages", {
   sessionId: varchar("session_id").notNull(),
   senderId: varchar("sender_id").notNull(),
   content: text("content").notNull(),
+  attachments: json("attachments").$type<any[]>().default([]),
+  hasEmoji: boolean("has_emoji").default(false),
   timestamp: timestamp("timestamp").defaultNow(),
 });
 
@@ -28,6 +30,7 @@ export const onlineUsers = pgTable("online_users", {
   interests: json("interests").$type<string[]>().default([]),
   isWaiting: boolean("is_waiting").default(false),
   chatType: text("chat_type"), // 'text' | 'video'
+  gender: text("gender"), // 'male' | 'female' | 'other'
   lastSeen: timestamp("last_seen").defaultNow(),
 });
 
@@ -43,6 +46,8 @@ export const insertMessageSchema = createInsertSchema(messages).pick({
   sessionId: true,
   senderId: true,
   content: true,
+  attachments: true,
+  hasEmoji: true,
 });
 
 export const insertOnlineUserSchema = createInsertSchema(onlineUsers).pick({
@@ -51,6 +56,7 @@ export const insertOnlineUserSchema = createInsertSchema(onlineUsers).pick({
   interests: true,
   isWaiting: true,
   chatType: true,
+  gender: true,
 });
 
 export type InsertChatSession = z.infer<typeof insertChatSessionSchema>;

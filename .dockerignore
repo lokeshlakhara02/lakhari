@@ -1,0 +1,56 @@
+# Dependencies
+node_modules
+npm-debug.log
+yarn-error.log
+package-lock.json
+
+# Environment files
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+
+# Build output
+dist
+build
+.next
+out
+
+# IDE and editor files
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# Testing
+coverage
+.nyc_output
+*.test.js
+*.spec.js
+__tests__
+__mocks__
+
+# Documentation
+README.md
+docs
+*.md
+
+# Logs
+logs
+*.log
+
+# Misc
+.cache
+tmp
+temp
+.tmp
+.temp
+
