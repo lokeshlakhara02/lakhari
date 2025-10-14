@@ -123,6 +123,8 @@ export function useWebSocket() {
     isConnectingRef.current = true;
     setIsConnecting(true);
     setConnectionError(null);
+    
+    console.log('Starting WebSocket connection attempt...');
 
     // Clear any existing connections first
     if (hybridConnection.current) {
@@ -467,6 +469,7 @@ export function useWebSocket() {
   useEffect(() => {
     // Only connect if not already connected and not already connecting
     if (!isConnected && !connectionAttempted.current && !isConnectingRef.current) {
+      console.log('Auto-connecting WebSocket...');
       connect();
     }
     
