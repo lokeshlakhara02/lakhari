@@ -326,20 +326,32 @@ export default function VideoChat() {
 
     // Handle sending ICE candidates when they are generated
     useEffect(() => {
-      if (peerConnection && session?.id && sendMessage) {
-        const pc = peerConnection;
-        pc.onicecandidate = (event) => {
-          if (event.candidate && sendMessage) {
-            sendIceCandidate(event.candidate, sendMessage, session.id);
+      try {
+        if (peerConnection && session?.id && sendMessage && sendIceCandidate) {
+          console.log('Setting up ICE candidate handler for session:', session.id);
+          const pc = peerConnection;
+          
+          if (pc && typeof pc === 'object' && 'onicecandidate' in pc) {
+            pc.onicecandidate = (event) => {
+              if (event && event.candidate && sendMessage && sendIceCandidate) {
+                sendIceCandidate(event.candidate, sendMessage, session.id);
+              }
+            };
           }
-        };
-        
-        // Cleanup function to remove the event listener
-        return () => {
-          if (pc && pc.onicecandidate) {
-            pc.onicecandidate = null;
-          }
-        };
+          
+          // Cleanup function to remove the event listener
+          return () => {
+            try {
+              if (pc && typeof pc === 'object' && 'onicecandidate' in pc) {
+                pc.onicecandidate = null;
+              }
+            } catch (cleanupError) {
+              console.error('Error during ICE candidate cleanup:', cleanupError);
+            }
+          };
+        }
+      } catch (error) {
+        console.error('Error setting up ICE candidate handler:', error);
       }
     }, [session?.id, sendIceCandidate, sendMessage]);
 
@@ -459,27 +471,7 @@ export default function VideoChat() {
     };
   }, [isConnected]); // Only depend on isConnected
 
-  // ICE candidate handler - separate effect to avoid dependency issues
-  useEffect(() => {
-    const pc = peerConnection;
-    if (pc) {
-      const handleIceCandidate = (event: RTCPeerConnectionIceEvent) => {
-        if (event.candidate && session) {
-          sendMessage({
-            type: 'webrtc_ice_candidate',
-            sessionId: session.id,
-            candidate: event.candidate,
-          });
-        }
-      };
-
-      pc.onicecandidate = handleIceCandidate;
-
-      return () => {
-        pc.onicecandidate = null;
-      };
-    }
-  }, [peerConnection, session, sendMessage]);
+  // ICE candidate handler removed - using the one above with sendIceCandidate function
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
