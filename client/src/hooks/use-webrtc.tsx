@@ -716,7 +716,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
       // Enhanced peer connection setup
       if (!peerConnection.current) {
         console.log('Initializing new peer connection');
-        initializePeerConnection();
+        const pc = initializePeerConnection();
         
         // Wait a moment for the peer connection to be created
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -1131,9 +1131,18 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
   useEffect(() => {
     return () => {
       console.log('useWebRTC cleanup on unmount');
-      endCall();
+      // Don't call endCall here as it might cause infinite loops
+      // Just clean up the peer connection directly
+      if (peerConnection.current) {
+        peerConnection.current.close();
+        peerConnection.current = null;
+      }
+      if (localStream.current) {
+        localStream.current.getTracks().forEach(track => track.stop());
+        localStream.current = null;
+      }
     };
-  }, [endCall]);
+  }, []); // Empty dependency array to run only on unmount
 
   return {
     localStream,

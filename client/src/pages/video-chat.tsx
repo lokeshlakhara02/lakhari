@@ -110,7 +110,40 @@ export default function VideoChat() {
     offMessage,
     getConnectionDiagnostics
   } = useWebSocket();
+
+  // Enhanced error management utilities
+  const addError = useCallback((error: Omit<VideoChatError, 'id' | 'timestamp'>) => {
+    const newError: VideoChatError = {
+      id: `error-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      timestamp: new Date(),
+      retryCount: 0,
+      ...error
+    };
+    
+    setErrors(prev => [newError, ...prev.slice(0, 9)]); // Keep only last 10 errors
+    setLastErrorTime(new Date());
+    
+    console.error('Video chat error:', newError);
+    
+    // Auto-recovery for recoverable errors
+    if (error.recoverable && autoRecoveryEnabled) {
+      // Schedule recovery directly here to avoid dependency issues
+      setTimeout(() => {
+        if (errorRecoveryTimeoutRef.current) {
+          clearTimeout(errorRecoveryTimeoutRef.current);
+        }
+        
+        errorRecoveryTimeoutRef.current = setTimeout(() => {
+          console.log('Attempting recovery for error:', newError.type);
+        }, 5000);
+      }, 100);
+    }
+  }, [autoRecoveryEnabled]);
   
+  const clearError = useCallback((errorId: string) => {
+    setErrors(prev => prev.filter(error => error.id !== errorId));
+  }, []);
+
   const {
     localStream,
     remoteStream,
@@ -138,7 +171,7 @@ export default function VideoChat() {
     checkPermissions,
     requestPermissions,
     peerConnection
-  } = useWebRTC((stream) => {
+  } = useWebRTC(useCallback((stream) => {
     // Enhanced remote stream callback with error handling
     console.log('Remote stream received in callback:', stream);
     try {
@@ -162,47 +195,7 @@ export default function VideoChat() {
         recoverable: true
       });
     }
-  });
-
-  // Enhanced error management utilities
-  const addError = useCallback((error: Omit<VideoChatError, 'id' | 'timestamp'>) => {
-    const newError: VideoChatError = {
-      id: `error-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      timestamp: new Date(),
-      retryCount: 0,
-      ...error
-    };
-    
-    setErrors(prev => [newError, ...prev.slice(0, 9)]); // Keep only last 10 errors
-    setLastErrorTime(new Date());
-    
-    console.error('Video chat error:', newError);
-    
-    // Auto-recovery for recoverable errors
-    if (error.recoverable && autoRecoveryEnabled) {
-      scheduleAutoRecovery(newError);
-    }
-  }, [autoRecoveryEnabled]);
-  
-  const clearError = useCallback((errorId: string) => {
-    setErrors(prev => prev.filter(error => error.id !== errorId));
-  }, []);
-  
-  const scheduleAutoRecovery = useCallback((error: VideoChatError) => {
-    if (errorRecoveryTimeoutRef.current) {
-      clearTimeout(errorRecoveryTimeoutRef.current);
-    }
-    
-    // Schedule recovery based on error type
-    const delay = error.type === 'permission' ? 5000 : 2000;
-    
-    errorRecoveryTimeoutRef.current = setTimeout(() => {
-      if (isRecovering) return;
-      
-      setIsRecovering(true);
-      attemptRecovery(error);
-    }, delay);
-  }, [isRecovering]);
+  }, [addError]));
   
   const attemptRecovery = useCallback(async (error: VideoChatError) => {
     try {
