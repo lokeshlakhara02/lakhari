@@ -92,6 +92,7 @@ export default function VideoChat() {
   const diagnosticsIntervalRef = useRef<NodeJS.Timeout>();
   const lastDiagnosticsUpdate = useRef<Date>(new Date());
   const connectionStabilityTimeoutRef = useRef<NodeJS.Timeout>();
+  const remoteVideoPlayTimeoutRef = useRef<NodeJS.Timeout>();
   const mediaRecoveryAttempts = useRef(0);
   const maxMediaRecoveryAttempts = 3;
   
@@ -177,15 +178,30 @@ export default function VideoChat() {
     try {
       if (remoteVideoRef.current && stream) {
         console.log('Setting remote stream directly in callback');
+        
+        // Clear any existing timeout to prevent play interruption
+        if (remoteVideoPlayTimeoutRef.current) {
+          clearTimeout(remoteVideoPlayTimeoutRef.current);
+        }
+        
         remoteVideoRef.current.srcObject = stream;
-        remoteVideoRef.current.play().catch(error => {
-          console.error('Error playing remote video in callback:', error);
-          addError({
-            type: 'webrtc',
-            message: `Failed to play remote video: ${error.message}`,
-            recoverable: true
-          });
-        });
+        
+        // Use a small delay to ensure the video element is ready
+        remoteVideoPlayTimeoutRef.current = setTimeout(() => {
+          if (remoteVideoRef.current && remoteVideoRef.current.srcObject === stream) {
+            remoteVideoRef.current.play().catch(error => {
+              // Only log errors that aren't play interruption
+              if (error.name !== 'AbortError') {
+                console.error('Error playing remote video in callback:', error);
+                addError({
+                  type: 'webrtc',
+                  message: `Failed to play remote video: ${error.message}`,
+                  recoverable: true
+                });
+              }
+            });
+          }
+        }, 100);
       }
     } catch (error) {
       console.error('Error in remote stream callback:', error);

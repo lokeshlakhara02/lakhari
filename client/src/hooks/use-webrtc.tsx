@@ -49,6 +49,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
   const [negotiationNeeded, setNegotiationNeeded] = useState(false);
   
   const peerConnection = useRef<RTCPeerConnection | null>(null);
+  const [peerConnectionState, setPeerConnectionState] = useState<RTCPeerConnection | null>(null);
   const streamUpdateTimeout = useRef<NodeJS.Timeout>();
   const connectionQualityInterval = useRef<NodeJS.Timeout>();
   const statsInterval = useRef<NodeJS.Timeout>();
@@ -224,21 +225,25 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
     
     // Enhanced negotiation handling
     pc.onnegotiationneeded = async () => {
-      console.log('Negotiation needed');
+      console.log('Negotiation needed, signaling state:', pc.signalingState);
       setNegotiationNeeded(true);
       
       try {
-        if (pc.signalingState === 'stable') {
-          // Clear any existing negotiation timeout
-          if (negotiationTimeout.current) {
-            clearTimeout(negotiationTimeout.current);
-          }
-          
-          // Set timeout for negotiation
-          negotiationTimeout.current = setTimeout(() => {
-            console.warn('Negotiation timeout - connection may be unstable');
-            setNegotiationNeeded(false);
-          }, 10000); // 10 second timeout
+        // Clear any existing negotiation timeout
+        if (negotiationTimeout.current) {
+          clearTimeout(negotiationTimeout.current);
+        }
+        
+        // Set timeout for negotiation
+        negotiationTimeout.current = setTimeout(() => {
+          console.warn('Negotiation timeout - connection may be unstable');
+          setNegotiationNeeded(false);
+        }, 15000); // Increased to 15 seconds
+        
+        // Only proceed if we're in the right state and have a local stream
+        if (pc.signalingState === 'stable' && localStream.current) {
+          console.log('Creating offer for negotiation...');
+          // The parent component will handle creating the offer
         }
       } catch (error) {
         console.error('Error during negotiation:', error);
@@ -508,6 +513,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
     }, 5000); // Check every 5 seconds
 
     peerConnection.current = pc;
+    setPeerConnectionState(pc);
     
     // If we have a local stream, add it to the new peer connection
     if (localStream) {
@@ -924,6 +930,16 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
     try {
       console.log('Handling WebRTC answer:', answer.type);
       
+      // Check signaling state before setting remote description
+      const currentState = peerConnection.current.signalingState;
+      console.log('Current signaling state:', currentState);
+      
+      if (currentState !== 'have-local-offer') {
+        console.warn('Invalid signaling state for answer:', currentState);
+        // Don't try to set remote description if we're not in the right state
+        return;
+      }
+      
       await retryOperation(
         () => peerConnection.current!.setRemoteDescription(answer),
         'Set remote description for answer',
@@ -1137,6 +1153,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
         peerConnection.current.close();
         peerConnection.current = null;
       }
+      setPeerConnectionState(null);
       if (localStream.current) {
         localStream.current.getTracks().forEach(track => track.stop());
         localStream.current = null;
@@ -1172,6 +1189,6 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
     checkPermissions,
     requestPermissions,
     hasPermissions,
-    peerConnection: peerConnection.current,
+    peerConnection: peerConnectionState,
   };
 }
