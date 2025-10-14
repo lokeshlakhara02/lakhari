@@ -618,7 +618,9 @@ export default function VideoChat() {
   }, []);
 
   const handleMatchFound = useCallback(async (data: any) => {
-    console.log('handleMatchFound called with data:', data);
+    console.log('🎉 handleMatchFound called with data:', data);
+    console.log('Current connection status:', connectionStatus);
+    console.log('Current session:', session);
     
     try {
       const newSession = {
@@ -862,6 +864,17 @@ export default function VideoChat() {
   useEffect(() => {
     if (!isConnected) return;
 
+    // Register main message handlers first
+    if (onMessage) {
+      console.log('📡 Registering message handlers...');
+      onMessage('waiting_for_match', handleWaitingForMatch);
+      onMessage('match_found', handleMatchFound);
+      onMessage('webrtc_offer', handleWebRTCOffer);
+      onMessage('webrtc_answer', handleWebRTCAnswer);
+      onMessage('webrtc_ice_candidate', handleIceCandidate);
+      console.log('✅ Message handlers registered successfully');
+    }
+
     // Register additional message handlers
     if (onMessage) {
       onMessage('chat_ended', () => {
@@ -948,6 +961,14 @@ export default function VideoChat() {
 
     return () => {
       if (offMessage) {
+        // Clean up main handlers
+        offMessage('waiting_for_match');
+        offMessage('match_found');
+        offMessage('webrtc_offer');
+        offMessage('webrtc_answer');
+        offMessage('webrtc_ice_candidate');
+        
+        // Clean up additional handlers
         offMessage('chat_ended');
         offMessage('session_recovered');
         offMessage('session_recovery_failed');
@@ -957,7 +978,20 @@ export default function VideoChat() {
         offMessage('gender_updated');
       }
     };
-  }, [isConnected, onMessage, offMessage, endCall, userGender, sendMessage, userId]); // Stable dependencies
+  }, [
+    isConnected, 
+    onMessage, 
+    offMessage, 
+    handleWaitingForMatch,
+    handleMatchFound,
+    handleWebRTCOffer,
+    handleWebRTCAnswer,
+    handleIceCandidate,
+    endCall, 
+    userGender, 
+    sendMessage, 
+    userId
+  ]); // Include all handler dependencies
 
   // ICE candidate handler removed - using the one above with sendIceCandidate function
 
