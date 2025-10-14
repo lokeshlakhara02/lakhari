@@ -342,6 +342,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         const message = JSON.parse(dataString);
+        console.log(`WebSocket message received from user ${ws.userId}:`, message.type, message);
         
         switch (message.type) {
           case 'join':
@@ -409,10 +410,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
 
     ws.on('close', async () => {
+      console.log(`WebSocket connection closed for user ${ws.userId}`);
       if (ws.userId) {
         try {
           await storage.removeOnlineUser(ws.userId);
-          console.log(`User ${ws.userId} disconnected`);
+          console.log(`User ${ws.userId} disconnected and removed from storage`);
         } catch (error) {
           console.error('Error removing user on disconnect:', error);
         }
@@ -471,6 +473,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const userId = randomUUID();
     ws.userId = userId;
 
+    console.log(`User ${userId} joined with interests:`, message.interests || []);
+
     await storage.addOnlineUser({
       id: userId,
       socketId: userId, // Using userId as socketId for simplicity
@@ -483,7 +487,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   async function handleFindMatch(ws: WebSocketWithUserId, message: any) {
-    if (!ws.userId) return;
+    if (!ws.userId) {
+      console.log('handleFindMatch: No userId found for WebSocket');
+      return;
+    }
 
     const { chatType, interests, gender } = message;
     console.log(`User ${ws.userId} looking for ${chatType} match with interests:`, interests, 'gender:', gender);

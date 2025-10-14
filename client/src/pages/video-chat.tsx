@@ -218,12 +218,14 @@ export default function VideoChat() {
       // Find a match when component mounts
       const interests = JSON.parse(localStorage.getItem('interests') || '[]');
       const gender = userGender || localStorage.getItem('gender') as 'male' | 'female' | 'other' | null;
-      sendMessage({
+      const findMatchMessage = {
         type: 'find_match',
         chatType: 'video',
         interests,
         gender,
-      });
+      };
+      console.log('Video chat: Sending find_match message:', findMatchMessage);
+      sendMessage(findMatchMessage);
     }
   }, [isConnected, userId, sendMessage]);
 

@@ -95,10 +95,12 @@ export function useWebSocket() {
       
       // Send join message
       try {
-        hybridConnection.current.send({
+        const joinMessage = {
           type: 'join',
           interests: JSON.parse(localStorage.getItem('interests') || '[]')
-        });
+        };
+        console.log('Sending join message:', joinMessage);
+        hybridConnection.current.send(joinMessage);
       } catch (error) {
         console.error('Failed to send join message:', error);
       }
@@ -139,12 +141,15 @@ export function useWebSocket() {
   }, []);
 
   const sendMessage = useCallback((message: WebSocketMessage) => {
+    console.log('sendMessage called:', message.type, 'isConnected:', isConnected, 'hasConnection:', !!hybridConnection.current);
     if (hybridConnection.current && isConnected) {
       try {
         hybridConnection.current.send(message);
       } catch (error) {
         console.error('Failed to send message:', error);
       }
+    } else {
+      console.warn('Cannot send message - not connected or no hybrid connection');
     }
   }, [isConnected]);
 
