@@ -8,29 +8,29 @@ export function getWebSocketHost(): string {
     return 'localhost:8080'; // Fallback for SSR
   }
   
-  // Development mode detection - always use backend port 8080
+  // Development mode detection
   const isLocalhost = window.location.hostname === 'localhost' || 
-                     window.location.hostname === '127.0.0.1' ||
-                     !window.location.hostname;
+                     window.location.hostname === '127.0.0.1';
   
-  const isDevPort = window.location.port === '5173' || 
-                   window.location.port === '' ||
-                   !window.location.port;
+  const isDevPort = window.location.port === '5173';
   
-  if (isLocalhost || isDevPort) {
+  if (isLocalhost && isDevPort) {
     return 'localhost:8080';
   }
   
-  // Production mode - use same host but backend port
-  const hostname = window.location.hostname || 'localhost';
+  // Production mode - use same host as the current page
+  // For Railway deployment, both frontend and backend are served from the same origin
+  const hostname = window.location.hostname;
   
-  // For production, we assume the backend runs on the same host
-  // but we need to determine the correct port
-  // This should be configured via environment variables in production
-  const backendPort = import.meta.env.VITE_WS_PORT || '8080';
+  // For production deployments, use the same hostname as the current page
+  // Railway serves everything on the same domain
+  if (!hostname || hostname === 'localhost' || hostname === '127.0.0.1') {
+    return 'localhost:8080';
+  }
   
-  const host = `${hostname}:${backendPort}`;
-  return host;
+  // For Railway and other cloud deployments, don't include port
+  // The WebSocket server runs on the same port as the HTTP server
+  return hostname;
 }
 
 export function getWebSocketProtocol(): string {
@@ -48,6 +48,16 @@ export function getWebSocketUrl(path: string = '/ws'): string {
   // Clean the path to ensure it doesn't have query parameters or fragments
   const cleanPath = path.split('?')[0].split('#')[0];
   
+  // Debug logging
+  console.log('WebSocket URL generation:', {
+    protocol,
+    host,
+    path: cleanPath,
+    hostname: typeof window !== 'undefined' ? window.location.hostname : 'undefined',
+    port: typeof window !== 'undefined' ? window.location.port : 'undefined',
+    origin: typeof window !== 'undefined' ? window.location.origin : 'undefined'
+  });
+  
   // Ensure we have valid protocol and host
   if (!protocol || !host || protocol.includes('undefined') || host.includes('undefined')) {
     console.error('WebSocket: Invalid protocol or host', { protocol, host });
@@ -63,6 +73,7 @@ export function getWebSocketUrl(path: string = '/ws'): string {
     return 'ws://localhost:8080/ws';
   }
   
+  console.log('Generated WebSocket URL:', url);
   return url;
 }
 

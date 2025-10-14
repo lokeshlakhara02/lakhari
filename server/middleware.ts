@@ -80,10 +80,10 @@ export function securityHeaders(req: Request, res: Response, next: NextFunction)
   const cspDirectives = [
     "default-src 'self'",
     "script-src 'self' 'unsafe-inline' 'unsafe-eval'", // Needed for Vite in dev
-    "style-src 'self' 'unsafe-inline'", // Needed for styled components
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com", // Allow Google Fonts
+    "font-src 'self' data: https://fonts.gstatic.com", // Allow Google Fonts
     "img-src 'self' data: blob: https:",
-    "font-src 'self' data:",
-    "connect-src 'self' ws: wss:",
+    "connect-src 'self' ws: wss: https:",
     "media-src 'self' blob:",
     "object-src 'none'",
     "base-uri 'self'",

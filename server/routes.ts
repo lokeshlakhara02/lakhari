@@ -205,6 +205,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Polling fallback endpoints for serverless compatibility
+  app.post("/api/poll", async (req, res) => {
+    try {
+      const { lastMessageId, timestamp } = req.body;
+      
+      // Get new messages since lastMessageId
+      // This is a simplified implementation - in production you'd store messages in a database
+      const newMessages = [];
+      
+      // For now, return empty array - this would be implemented with proper message storage
+      res.json({ 
+        messages: newMessages,
+        timestamp: Date.now()
+      });
+    } catch (error) {
+      console.error('Poll API error:', error);
+      res.status(500).json({ error: "Failed to poll messages" });
+    }
+  });
+
+  // Send message via polling fallback
+  app.post("/api/messages", async (req, res) => {
+    try {
+      const message = req.body;
+      
+      // Process message similar to WebSocket handler
+      // This would integrate with your existing message handling logic
+      console.log('Message received via polling:', message);
+      
+      res.json({ success: true, messageId: Date.now().toString() });
+    } catch (error) {
+      console.error('Message API error:', error);
+      res.status(500).json({ error: "Failed to send message" });
+    }
+  });
+
   const httpServer = createServer(app);
 
   // WebSocket Server

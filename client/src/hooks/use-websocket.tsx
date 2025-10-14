@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { WebSocketMessage } from '@/types/chat';
 import { getWebSocketUrl, validateWebSocketUrl } from '@/lib/websocket-utils';
+import { HybridConnection } from '@/lib/websocket-fallback';
 
 export function useWebSocket() {
   const [socket, setSocket] = useState<WebSocket | null>(null);
@@ -9,6 +10,7 @@ export function useWebSocket() {
   const [reconnectAttempts, setReconnectAttempts] = useState(0);
   const [connectionQuality, setConnectionQuality] = useState<'good' | 'poor' | 'unknown'>('unknown');
   const [lastHeartbeat, setLastHeartbeat] = useState<Date | null>(null);
+  const [connectionType, setConnectionType] = useState<'websocket' | 'polling'>('websocket');
   
   // Use refs to avoid dependency issues
   const messageHandlers = useRef<Map<string, (data: any) => void>>(new Map());
@@ -20,8 +22,9 @@ export function useWebSocket() {
   const isConnecting = useRef(false);
   const shouldReconnect = useRef(true);
   const maxReconnectAttempts = 5;
+  const hybridConnection = useRef<HybridConnection | null>(null);
 
-  const connect = useCallback(() => {
+  const connect = useCallback(async () => {
     // Prevent multiple simultaneous connection attempts
     if (isConnecting.current || isConnected) {
       console.log('WebSocket already connecting or connected, skipping');
@@ -34,9 +37,9 @@ export function useWebSocket() {
     }
 
     // Clear any existing connections first
-    if (socket && socket.readyState !== WebSocket.CLOSED) {
-      console.log('Closing existing WebSocket connection');
-      socket.close();
+    if (hybridConnection.current) {
+      console.log('Closing existing hybrid connection');
+      hybridConnection.current.disconnect();
     }
 
     isConnecting.current = true;
@@ -59,138 +62,44 @@ export function useWebSocket() {
         return null;
       }
       
-      const ws = new WebSocket(wsUrl);
+      // Create hybrid connection
+      hybridConnection.current = new HybridConnection(wsUrl, '/api/poll');
       
-      ws.onopen = () => {
-        setIsConnected(true);
-        setSocket(ws);
-        setReconnectAttempts(0);
-        isConnecting.current = false;
-        connectionAttempted.current = false;
+      // Set up message handlers
+      hybridConnection.current.on('user_joined', (message) => {
+        setUserId(message.userId);
+      });
       
-        // Clear any existing ping interval
-        if (pingIntervalRef.current) {
-          clearInterval(pingIntervalRef.current);
-        }
-        
-        // Set up ping interval
-        pingIntervalRef.current = setInterval(() => {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'ping' }));
-          }
-        }, 30000); // Ping every 30 seconds
-
-        // Set up heartbeat interval for adaptive connection quality monitoring
-        let poorResponseCount = 0;
-        heartbeatIntervalRef.current = setInterval(() => {
-          if (ws.readyState === WebSocket.OPEN) {
-            const heartbeatStart = Date.now();
-            ws.send(JSON.stringify({ type: 'heartbeat', timestamp: heartbeatStart }));
-            
-            // Set adaptive timeout for heartbeat response
-            heartbeatTimeout.current = setTimeout(() => {
-              poorResponseCount++;
-              // Only mark as poor if we have multiple slow responses
-              if (poorResponseCount >= 2) {
-                setConnectionQuality('poor');
-              }
-            }, 5000); // Consider poor if no response in 5 seconds
-          }
-        }, 10000); // Heartbeat every 10 seconds
-        
-        // Send join message
-        try {
-          ws.send(JSON.stringify({
-            type: 'join',
-            interests: JSON.parse(localStorage.getItem('interests') || '[]')
-          }));
-        } catch (error) {
-          console.error('Failed to send join message:', error);
-        }
-      };
-
-      ws.onclose = (event) => {
-        setIsConnected(false);
-        setSocket(null);
-        setUserId(null);
-        isConnecting.current = false;
-        connectionAttempted.current = false;
-        
-        // Clear intervals
-        if (pingIntervalRef.current) {
-          clearInterval(pingIntervalRef.current);
-        }
-        if (heartbeatIntervalRef.current) {
-          clearInterval(heartbeatIntervalRef.current);
-        }
-        if (heartbeatTimeout.current) {
-          clearTimeout(heartbeatTimeout.current);
-        }
-        
-        // Only attempt to reconnect if it wasn't a clean close and we should reconnect
-        if (!event.wasClean && shouldReconnect.current && reconnectAttempts < maxReconnectAttempts) {
-          const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
-          
-          reconnectTimeoutRef.current = setTimeout(() => {
-            setReconnectAttempts(prev => prev + 1);
-            connect();
-          }, delay);
-        }
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const message: WebSocketMessage = JSON.parse(event.data);
-          
-          // Handle user joined
-          if (message.type === 'user_joined') {
-            setUserId(message.userId);
-          }
-          
-          // Handle pong
-          if (message.type === 'pong') {
-            return; // Just ignore pong messages
-          }
-
-          // Handle heartbeat acknowledgment with latency calculation
-          if (message.type === 'heartbeat_ack') {
-            if (heartbeatTimeout.current) {
-              clearTimeout(heartbeatTimeout.current);
-            }
-            
-            // Calculate round-trip time for adaptive quality monitoring
-            const now = Date.now();
-            const rtt = message.timestamp ? now - message.timestamp : 0;
-            
-            setLastHeartbeat(new Date());
-            
-            // Adaptive quality based on latency
-            if (rtt < 100) {
-              setConnectionQuality('good');
-            } else if (rtt < 300) {
-              setConnectionQuality('good'); // Still acceptable
-            } else {
-              setConnectionQuality('poor');
-            }
-            
-            return;
-          }
-          
-          // Call registered handlers
-          const handler = messageHandlers.current.get(message.type);
-          if (handler) {
-            handler(message);
-          }
-        } catch (error) {
-          console.error('Failed to parse WebSocket message:', error);
-        }
-      };
-
-      ws.onerror = () => {
-        isConnecting.current = false;
-      };
-
-      return ws;
+      hybridConnection.current.on('heartbeat_ack', (message) => {
+        setLastHeartbeat(new Date());
+        setConnectionQuality('good');
+      });
+      
+      // Set up other message handlers
+      messageHandlers.current.forEach((handler, type) => {
+        hybridConnection.current?.on(type, handler);
+      });
+      
+      // Connect with hybrid approach
+      await hybridConnection.current.connect();
+      
+      setIsConnected(true);
+      setConnectionType(hybridConnection.current.getConnectionType());
+      setReconnectAttempts(0);
+      isConnecting.current = false;
+      connectionAttempted.current = false;
+      
+      // Send join message
+      try {
+        hybridConnection.current.send({
+          type: 'join',
+          interests: JSON.parse(localStorage.getItem('interests') || '[]')
+        });
+      } catch (error) {
+        console.error('Failed to send join message:', error);
+      }
+      
+      return hybridConnection.current;
     } catch (error) {
       console.error('Failed to create WebSocket:', error);
       isConnecting.current = false;
@@ -215,20 +124,25 @@ export function useWebSocket() {
       clearTimeout(heartbeatTimeout.current);
     }
     
-    if (socket) {
-      socket.close(1000, 'User disconnected'); // Clean close
+    if (hybridConnection.current) {
+      hybridConnection.current.disconnect();
+      hybridConnection.current = null;
     }
-  }, [socket]);
+    
+    setIsConnected(false);
+    setUserId(null);
+    setConnectionType('websocket');
+  }, []);
 
   const sendMessage = useCallback((message: WebSocketMessage) => {
-    if (socket && isConnected && socket.readyState === WebSocket.OPEN) {
+    if (hybridConnection.current && isConnected) {
       try {
-        socket.send(JSON.stringify(message));
+        hybridConnection.current.send(message);
       } catch (error) {
-        console.error('Failed to send WebSocket message:', error);
+        console.error('Failed to send message:', error);
       }
     }
-  }, [socket, isConnected]);
+  }, [isConnected]);
 
   const onMessage = useCallback((type: string, handler: (data: any) => void) => {
     messageHandlers.current.set(type, handler);
@@ -287,6 +201,7 @@ export function useWebSocket() {
     reconnectAttempts,
     connectionQuality,
     lastHeartbeat,
+    connectionType,
     sendMessage,
     onMessage,
     offMessage,
