@@ -234,10 +234,13 @@ export default function VideoChat() {
     if (!isConnected) return;
 
     const handleWaitingForMatch = () => {
+      console.log('handleWaitingForMatch called');
       setConnectionStatus('waiting');
     };
 
     const handleMatchFound = async (data: any) => {
+      console.log('handleMatchFound called with data:', data);
+      
       const newSession = {
         id: data.sessionId,
         partnerId: data.partnerId,
@@ -246,6 +249,7 @@ export default function VideoChat() {
       };
       setSession(newSession);
       setConnectionStatus('connected');
+      console.log('Session set and connection status updated to connected');
       
       // Save session for recovery
       sessionStorage.setItem('currentSessionId', data.sessionId);
@@ -880,16 +884,6 @@ export default function VideoChat() {
                   </div>
                 </div>
 
-                {/* Floating Next Button - Always Visible */}
-                <Button
-                  onClick={handleNextStranger}
-                  className="fixed top-4 right-4 z-50 px-3 py-2 rounded-full bg-gradient-to-r from-primary via-secondary to-accent hover:shadow-2xl hover:shadow-primary/30 text-white font-semibold transform hover:scale-105 transition-all duration-300 text-sm border border-white/20 shadow-lg"
-                  data-testid="floating-next-button"
-                  title="Find next stranger"
-                >
-                  <span className="hidden sm:inline mr-2">Next</span>
-                  <SkipForward className="h-4 w-4" />
-                </Button>
               </div>
             </div>
 

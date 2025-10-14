@@ -133,7 +133,17 @@ export class HybridConnection {
           console.log('HybridConnection: WebSocket closed', event.code, event.reason);
           if (this.connectionState === 'connected') {
             this.connectionState = 'disconnected';
-            this.fallbackToPolling();
+            // Don't fallback to polling immediately - try to reconnect first
+            if (event.code !== 1000 && event.code !== 1001) { // Don't reconnect on normal closure
+              console.log('HybridConnection: Attempting to reconnect WebSocket...');
+              setTimeout(() => {
+                if (this.connectionState === 'disconnected') {
+                  this.connect();
+                }
+              }, 1000);
+            } else {
+              this.fallbackToPolling();
+            }
           }
         };
 

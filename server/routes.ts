@@ -597,26 +597,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.updateOnlineUser(bestMatch.user.id, { isWaiting: false });
 
       // Notify both users with enhanced data
-      ws.send(JSON.stringify({
+      const matchMessage1 = {
         type: 'match_found',
         sessionId: session.id,
         partnerId: bestMatch.user.id,
         sharedInterests: bestMatch.sharedInterests,
         matchQuality,
         matchScore: Math.round(bestMatch.score)
-      }));
+      };
+      console.log(`Sending match_found to user ${ws.userId}:`, matchMessage1);
+      ws.send(JSON.stringify(matchMessage1));
 
       // Find partner socket and notify
       const partnerSocket = findSocketByUserId(bestMatch.user.id);
       if (partnerSocket) {
-        partnerSocket.send(JSON.stringify({
+        const matchMessage2 = {
           type: 'match_found',
           sessionId: session.id,
           partnerId: ws.userId,
           sharedInterests: bestMatch.sharedInterests,
           matchQuality,
           matchScore: Math.round(bestMatch.score)
-        }));
+        };
+        console.log(`Sending match_found to partner ${bestMatch.user.id}:`, matchMessage2);
+        partnerSocket.send(JSON.stringify(matchMessage2));
+      } else {
+        console.log(`Warning: Could not find partner socket for user ${bestMatch.user.id}`);
       }
       
       // Broadcast updated queue status to remaining users
