@@ -676,16 +676,18 @@ export default function VideoChat() {
 
         // Wait for peer connection to be ready
         let retryCount = 0;
-        const maxRetries = 10;
+        const maxRetries = 20; // Increased retries
         
         while (!peerConnection && retryCount < maxRetries) {
           console.log(`⏰ Waiting for peer connection... (${retryCount + 1}/${maxRetries})`);
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise(resolve => setTimeout(resolve, 250)); // Reduced wait time
           retryCount++;
         }
 
         if (!peerConnection) {
           console.error('❌ Peer connection not ready after waiting');
+          console.log('Local stream status:', !!localStream);
+          console.log('Peer connection from hook:', !!peerConnection);
           addError({
             type: 'webrtc',
             message: 'Peer connection not ready after initialization',
@@ -1033,6 +1035,10 @@ export default function VideoChat() {
       setTextMessages(prev => [...prev, message]);
       });
       
+      onMessage('message_delivered', (data: any) => {
+        // Handle message delivery confirmation silently
+      });
+      
       onMessage('gender_updated', (data: any) => {
       console.log('Gender updated:', data.gender);
     });
@@ -1054,6 +1060,7 @@ export default function VideoChat() {
       offMessage('partner_reconnected');
         offMessage('message_received');
         offMessage('message_sent');
+        offMessage('message_delivered');
       offMessage('gender_updated');
       }
     };

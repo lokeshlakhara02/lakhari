@@ -717,7 +717,17 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
       if (!peerConnection.current) {
         console.log('Initializing new peer connection');
         initializePeerConnection();
+        
+        // Wait a moment for the peer connection to be created
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        if (!peerConnection.current) {
+          console.error('Failed to initialize peer connection');
+          throw new Error('Failed to initialize peer connection');
+        }
       }
+      
+      console.log('Peer connection ready:', !!peerConnection.current);
 
       // Remove existing tracks before adding new ones
       if (peerConnection.current) {
