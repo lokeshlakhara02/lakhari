@@ -132,13 +132,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
       iceTransportPolicy: 'all',
     });
 
-    pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        // Store the candidate to be sent by the parent component
-        console.log('ICE candidate generated:', event.candidate);
-        // The parent component will handle sending this via WebSocket
-      }
-    };
+    pc.onicecandidate = null; // Will be set by parent component
 
     pc.ontrack = (event) => {
       const [stream] = event.streams;

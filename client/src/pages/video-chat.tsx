@@ -326,15 +326,22 @@ export default function VideoChat() {
 
     // Handle sending ICE candidates when they are generated
     useEffect(() => {
-      if (peerConnection && session?.id) {
+      if (peerConnection && session?.id && sendMessage) {
         const pc = peerConnection;
         pc.onicecandidate = (event) => {
-          if (event.candidate) {
+          if (event.candidate && sendMessage) {
             sendIceCandidate(event.candidate, sendMessage, session.id);
           }
         };
+        
+        // Cleanup function to remove the event listener
+        return () => {
+          if (pc && pc.onicecandidate) {
+            pc.onicecandidate = null;
+          }
+        };
       }
-    }, [peerConnection, session?.id, sendIceCandidate, sendMessage]);
+    }, [session?.id, sendIceCandidate, sendMessage]);
 
     const handleChatEnded = () => {
       setConnectionStatus('ended');
