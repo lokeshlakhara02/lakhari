@@ -116,9 +116,9 @@ export default function Home() {
 
   const { data: stats, isLoading: statsLoading, error: statsError } = useQuery<OnlineStats>({
     queryKey: ['/api/stats'],
-    refetchInterval: 5000,
+    refetchInterval: 30000, // 30 seconds instead of 5 seconds
     refetchIntervalInBackground: true,
-    staleTime: 0,
+    staleTime: 15000, // 15 seconds
   });
 
   // GSAP Animations

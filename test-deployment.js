@@ -25,7 +25,8 @@ async function testEndpoints() {
     '/',
     '/api/health',
     '/api/stats',
-    '/api/analytics'
+    '/api/analytics',
+    '/api/debug/storage'
   ];
   
   for (const endpoint of endpoints) {
@@ -42,6 +43,23 @@ async function testEndpoints() {
       
       if (response.ok) {
         console.log(`    ✅ ${response.status} ${response.statusText}`);
+        
+        // Special handling for debug storage endpoint
+        if (endpoint === '/api/debug/storage') {
+          const data = await response.json();
+          console.log(`    📊 Storage Status:`);
+          console.log(`      Total Users: ${data.totalUsers}`);
+          console.log(`      Waiting Text Users: ${data.waitingTextUsers}`);
+          console.log(`      Waiting Video Users: ${data.waitingVideoUsers}`);
+          console.log(`      Recently Active Users: ${data.recentlyActiveUsers}`);
+          
+          if (data.allUsers && data.allUsers.length > 0) {
+            console.log(`    👥 User Details:`);
+            data.allUsers.forEach((user, index) => {
+              console.log(`      User ${index + 1}: ${user.id} (${user.chatType || 'no type'}, waiting: ${user.isWaiting}, last seen: ${user.timeSinceLastSeen ? Math.round(user.timeSinceLastSeen / 1000) + 's ago' : 'unknown'})`);
+            });
+          }
+        }
       } else {
         console.log(`    ❌ ${response.status} ${response.statusText}`);
       }

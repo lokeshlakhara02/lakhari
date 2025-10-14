@@ -110,30 +110,35 @@ export class HybridConnection {
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       if (this.connectionState === 'connected' || this.connectionState === 'connecting') {
+        console.log('HybridConnection: Already connected or connecting');
         resolve();
         return;
       }
 
       this.connectionState = 'connecting';
+      console.log('HybridConnection: Starting connection to', this.wsUrl);
 
       // Try WebSocket first
       try {
         this.ws = new WebSocket(this.wsUrl);
         
         this.ws.onopen = () => {
+          console.log('HybridConnection: WebSocket connected successfully');
           this.connectionState = 'connected';
           this.useFallback = false;
           resolve();
         };
 
-        this.ws.onclose = () => {
+        this.ws.onclose = (event) => {
+          console.log('HybridConnection: WebSocket closed', event.code, event.reason);
           if (this.connectionState === 'connected') {
             this.connectionState = 'disconnected';
             this.fallbackToPolling();
           }
         };
 
-        this.ws.onerror = () => {
+        this.ws.onerror = (error) => {
+          console.log('HybridConnection: WebSocket error', error);
           this.fallbackToPolling();
           resolve(); // Don't reject, fallback is available
         };
@@ -141,6 +146,7 @@ export class HybridConnection {
         this.ws.onmessage = (event) => {
           try {
             const message = JSON.parse(event.data);
+            console.log('HybridConnection: Received message', message.type, message);
             const handler = this.messageHandlers.get(message.type);
             if (handler) {
               handler(message);
@@ -153,12 +159,14 @@ export class HybridConnection {
         // Timeout after 5 seconds
         setTimeout(() => {
           if (this.connectionState === 'connecting') {
+            console.log('HybridConnection: WebSocket connection timeout, falling back to polling');
             this.fallbackToPolling();
             resolve();
           }
         }, 5000);
 
       } catch (error) {
+        console.log('HybridConnection: WebSocket creation failed', error);
         this.fallbackToPolling();
         resolve();
       }
@@ -194,10 +202,13 @@ export class HybridConnection {
   }
 
   send(message: any): void {
+    console.log('HybridConnection: Sending message', message.type, 'via', this.useFallback ? 'polling' : 'websocket');
     if (this.useFallback && this.fallback) {
       this.fallback.sendMessage(message);
     } else if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(message));
+    } else {
+      console.log('HybridConnection: Cannot send message - no active connection');
     }
   }
 

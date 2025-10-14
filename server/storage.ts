@@ -99,6 +99,7 @@ export class MemStorage implements IStorage {
       chatType: insertUser.chatType || null,
       lastSeen: new Date(),
     };
+    console.log('Memory: Adding online user:', user.id);
     this.onlineUsers.set(user.id, user);
     return user;
   }
@@ -127,9 +128,12 @@ export class MemStorage implements IStorage {
   }
 
   async getWaitingUsers(chatType: string, interests?: string[]): Promise<OnlineUser[]> {
-    const waitingUsers = Array.from(this.onlineUsers.values()).filter(
+    const allUsers = Array.from(this.onlineUsers.values());
+    console.log(`Memory: Total online users: ${allUsers.length}`);
+    const waitingUsers = allUsers.filter(
       user => user.isWaiting && user.chatType === chatType
     );
+    console.log(`Memory: Found ${waitingUsers.length} waiting users for ${chatType} chat`);
 
     if (!interests || interests.length === 0) {
       return waitingUsers;
@@ -201,6 +205,7 @@ export class DatabaseStorage implements IStorage {
       ...insertUser,
       interests: insertUser.interests as string[] || []
     };
+    console.log('Database: Adding online user:', userData.id);
     const [user] = await this.db.insert(onlineUsers).values(userData).returning();
     return user;
   }
@@ -235,6 +240,7 @@ export class DatabaseStorage implements IStorage {
       ));
 
     const waitingUsers = await query;
+    console.log(`Database: Found ${waitingUsers.length} waiting users for ${chatType} chat`);
 
     if (!interests || interests.length === 0) {
       return waitingUsers;
@@ -253,7 +259,18 @@ export class DatabaseStorage implements IStorage {
   }
 }
 
-// Use database storage if DATABASE_URL is available, otherwise fall back to memory storage
-export const storage = process.env.DATABASE_URL 
+// Use database storage if DATABASE_URL is available and not pointing to localhost, otherwise fall back to memory storage
+const hasValidDatabaseUrl = process.env.DATABASE_URL && 
+  !process.env.DATABASE_URL.includes('localhost') && 
+  !process.env.DATABASE_URL.includes('127.0.0.1');
+
+console.log('Storage configuration:', {
+  hasDatabaseUrl: !!process.env.DATABASE_URL,
+  databaseUrl: process.env.DATABASE_URL?.replace(/\/\/[^:]+:[^@]+@/, '//***:***@'), // Hide credentials
+  hasValidDatabaseUrl,
+  usingStorage: hasValidDatabaseUrl ? 'DatabaseStorage' : 'MemStorage'
+});
+
+export const storage = hasValidDatabaseUrl 
   ? new DatabaseStorage() 
   : new MemStorage();

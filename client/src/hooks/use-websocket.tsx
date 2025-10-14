@@ -67,10 +67,12 @@ export function useWebSocket() {
       
       // Set up message handlers
       hybridConnection.current.on('user_joined', (message) => {
+        console.log('User joined message received:', message);
         setUserId(message.userId);
       });
       
       hybridConnection.current.on('heartbeat_ack', (message) => {
+        console.log('Heartbeat ack received:', message);
         setLastHeartbeat(new Date());
         setConnectionQuality('good');
       });
@@ -81,8 +83,10 @@ export function useWebSocket() {
       });
       
       // Connect with hybrid approach
+      console.log('Attempting hybrid connection...');
       await hybridConnection.current.connect();
       
+      console.log('Hybrid connection established, type:', hybridConnection.current.getConnectionType());
       setIsConnected(true);
       setConnectionType(hybridConnection.current.getConnectionType());
       setReconnectAttempts(0);

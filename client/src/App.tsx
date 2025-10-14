@@ -26,8 +26,9 @@ function Header() {
   const { theme, toggleTheme } = useTheme();
   const { data: stats, isLoading: statsLoading, error: statsError } = useQuery<OnlineStats>({
     queryKey: ['/api/stats'],
-    refetchInterval: 5000,
+    refetchInterval: 30000, // 30 seconds instead of 5 seconds
     refetchIntervalInBackground: true,
+    staleTime: 15000, // 15 seconds
   });
 
   return (
@@ -98,8 +99,9 @@ function Header() {
 function Footer() {
   const { data: stats, isLoading: statsLoading, error: statsError } = useQuery<OnlineStats>({
     queryKey: ['/api/stats'],
-    refetchInterval: 5000,
+    refetchInterval: 30000, // 30 seconds instead of 5 seconds
     refetchIntervalInBackground: true,
+    staleTime: 15000, // 15 seconds
   });
 
   return (

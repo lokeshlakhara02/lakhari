@@ -27,6 +27,18 @@ export function rateLimiter(req: Request, res: Response, next: NextFunction) {
     return next();
   }
 
+  // Skip rate limiting for certain public endpoints
+  const publicEndpoints = [
+    '/api/stats',
+    '/api/health',
+    '/api/analytics',
+    '/api/interests/suggestions'
+  ];
+  
+  if (publicEndpoints.some(endpoint => req.path.startsWith(endpoint))) {
+    return next();
+  }
+
   const identifier = req.ip || req.socket.remoteAddress || 'unknown';
   const now = Date.now();
   
