@@ -383,9 +383,14 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
         setRemoteStream(null);
         setLastError(createWebRTCError('Peer connection failed', 'peer_connection', 'CONNECTION_FAILED'));
         
-        // Attempt recovery
+        // Attempt recovery without stopping local stream
         setIsReconnecting(true);
         setTimeout(() => {
+          console.log('🔄 Attempting peer connection recovery...');
+          // Only reinitialize peer connection, don't stop local stream
+          if (localStream) {
+            console.log('✅ Preserving local stream during recovery');
+          }
           initializePeerConnection();
           setIsReconnecting(false);
         }, 3000);
@@ -504,6 +509,15 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
 
     peerConnection.current = pc;
     
+    // If we have a local stream, add it to the new peer connection
+    if (localStream) {
+      console.log('🔄 Adding local stream to reinitialized peer connection');
+      localStream.getTracks().forEach(track => {
+        pc.addTrack(track, localStream);
+        console.log('✅ Added track to peer connection:', track.kind);
+      });
+    }
+    
     // Clear any existing timeouts
     if (negotiationTimeout.current) {
       clearTimeout(negotiationTimeout.current);
@@ -513,7 +527,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
     }
     
     return pc;
-  }, [onRemoteStream, createWebRTCError, retryOperation]);
+  }, [onRemoteStream, createWebRTCError, retryOperation, localStream]);
 
   const startLocalStream = useCallback(async (video: boolean = true, audio: boolean = true) => {
     // Prevent multiple simultaneous initialization attempts

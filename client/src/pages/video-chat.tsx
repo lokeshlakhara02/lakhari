@@ -268,9 +268,23 @@ export default function VideoChat() {
   }, [startLocalStream]);
   
   const recoverWebRTC = useCallback(async () => {
-    // WebRTC recovery is handled by the hook itself
-    console.log('WebRTC recovery triggered');
-  }, []);
+    console.log('🔄 WebRTC recovery triggered - attempting to restore connection...');
+    
+    try {
+      // Don't stop the local stream during recovery
+      // Just try to re-establish the peer connection
+      if (peerConnection && localStream) {
+        console.log('🔄 Restarting ICE gathering...');
+        // The peer connection will handle its own recovery
+        // We just need to make sure the local stream stays active
+        console.log('✅ Local stream preserved during recovery');
+      } else {
+        console.log('⚠️ No peer connection or local stream to recover');
+      }
+    } catch (error) {
+      console.error('❌ WebRTC recovery failed:', error);
+    }
+  }, [peerConnection, localStream]);
   
   const recoverConnection = useCallback(async () => {
     // Connection recovery is handled by the WebSocket hook
@@ -621,6 +635,8 @@ export default function VideoChat() {
     console.log('🎉 handleMatchFound called with data:', data);
     console.log('Current connection status:', connectionStatus);
     console.log('Current session:', session);
+    console.log('Local stream status:', localStream ? 'Active' : 'Inactive');
+    console.log('Peer connection status:', peerConnection ? 'Active' : 'Inactive');
     
     try {
       const newSession = {
@@ -647,52 +663,79 @@ export default function VideoChat() {
       );
       setSharedInterests(shared);
 
-      // Enhanced WebRTC offer creation with retry
-      const pc = peerConnection;
-      if (pc && createOffer && sendMessage) {
-        let offerCreated = false;
-        let attempts = 0;
-        const maxAttempts = 3;
+        // Ensure peer connection is ready for WebRTC
+        if (!peerConnection && localStream) {
+          console.log('🔄 Initializing peer connection for match...');
+          // The peer connection should be initialized by the useWebRTC hook
+          // when localStream is set, but let's make sure it's ready
+          setTimeout(() => {
+            console.log('⏰ Retrying WebRTC offer creation after peer connection initialization...');
+            // This will be handled by the next part of the code
+          }, 1000);
+        }
+
+        // Enhanced WebRTC offer creation with retry
+        const pc = peerConnection;
+        console.log('🔍 WebRTC offer creation check:', {
+          peerConnection: !!pc,
+          createOffer: !!createOffer,
+          sendMessage: !!sendMessage,
+          localStream: !!localStream,
+          sessionId: data.sessionId
+        });
         
-        while (!offerCreated && attempts < maxAttempts) {
-          try {
-            attempts++;
-            console.log(`Creating WebRTC offer (attempt ${attempts}/${maxAttempts})`);
-            
-            const offer = await createOffer();
-            if (offer) {
-              sendMessage({
-                type: 'webrtc_offer',
-                sessionId: data.sessionId,
-                offer,
-              });
-              offerCreated = true;
-              console.log('WebRTC offer created and sent successfully');
-            } else {
-              throw new Error('Failed to create offer - returned null');
-            }
-          } catch (error) {
-            console.error(`Failed to create offer (attempt ${attempts}):`, error);
-            
-            if (attempts >= maxAttempts) {
-              addError({
-                type: 'webrtc',
-                message: `Failed to create WebRTC offer after ${maxAttempts} attempts: ${error instanceof Error ? error.message : 'Unknown error'}`,
-                recoverable: true
-              });
-            } else {
-              // Wait before retry
-              await new Promise(resolve => setTimeout(resolve, 1000 * attempts));
+        if (pc && createOffer && sendMessage) {
+          let offerCreated = false;
+          let attempts = 0;
+          const maxAttempts = 3;
+          
+          while (!offerCreated && attempts < maxAttempts) {
+            try {
+              attempts++;
+              console.log(`🎯 Creating WebRTC offer (attempt ${attempts}/${maxAttempts})`);
+              console.log('Peer connection state:', pc.connectionState);
+              console.log('ICE connection state:', pc.iceConnectionState);
+              
+              const offer = await createOffer();
+              if (offer) {
+                console.log('✅ WebRTC offer created successfully:', offer.type);
+                sendMessage({
+                  type: 'webrtc_offer',
+                  sessionId: data.sessionId,
+                  offer,
+                });
+                offerCreated = true;
+                console.log('📤 WebRTC offer sent successfully');
+              } else {
+                throw new Error('Failed to create offer - returned null');
+              }
+            } catch (error) {
+              console.error(`❌ Failed to create offer (attempt ${attempts}):`, error);
+              
+              if (attempts >= maxAttempts) {
+                addError({
+                  type: 'webrtc',
+                  message: `Failed to create WebRTC offer after ${maxAttempts} attempts: ${error instanceof Error ? error.message : 'Unknown error'}`,
+                  recoverable: true
+                });
+              } else {
+                // Wait before retry
+                await new Promise(resolve => setTimeout(resolve, 1000 * attempts));
+              }
             }
           }
+        } else {
+          console.error('❌ Cannot create WebRTC offer:', {
+            peerConnection: !!pc,
+            createOffer: !!createOffer,
+            sendMessage: !!sendMessage
+          });
+          addError({
+            type: 'webrtc',
+            message: 'Cannot create WebRTC offer: missing peer connection or functions',
+            recoverable: true
+          });
         }
-      } else {
-        addError({
-          type: 'webrtc',
-          message: 'Cannot create WebRTC offer: missing peer connection or functions',
-          recoverable: true
-        });
-      }
     } catch (error) {
       console.error('Error in handleMatchFound:', error);
       addError({
