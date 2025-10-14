@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 // Simple start script for Railway
-const { spawn } = require('child_process');
-const path = require('path');
+import { spawn } from 'child_process';
+import path from 'path';
 
 console.log('Starting Lakhari application...');
 
