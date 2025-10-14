@@ -93,6 +93,7 @@ export class MemStorage implements IStorage {
   async addOnlineUser(insertUser: InsertOnlineUser): Promise<OnlineUser> {
     const user: OnlineUser = {
       id: insertUser.id,
+      gender: insertUser.gender || null,
       socketId: insertUser.socketId,
       interests: (insertUser.interests as string[]) || [],
       isWaiting: insertUser.isWaiting || false,

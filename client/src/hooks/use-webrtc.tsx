@@ -164,7 +164,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
   }, []);
 
   // Retry mechanism with exponential backoff
-  const retryOperation = useCallback(async <T>(
+  const retryOperation = useCallback(async <T extends any>(
     operation: () => Promise<T>,
     operationName: string,
     config = retryConfig.current
@@ -260,7 +260,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
           console.warn('ICE gathering timeout - forcing completion');
           if (pc.iceGatheringState === 'gathering') {
             // Force completion by setting local description again
-            pc.setLocalDescription(pc.localDescription).catch(error => {
+            pc.setLocalDescription(pc.localDescription || undefined).catch(error => {
               console.error('Error forcing ICE gathering completion:', error);
             });
           }

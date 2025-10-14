@@ -21,7 +21,6 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
-    https: true, // Enable HTTPS with self-signed certificate
     host: true, // Allow access from network
     hmr: {
       port: 5173,

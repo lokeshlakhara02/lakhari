@@ -280,7 +280,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Get new messages since lastMessageId
       // This is a simplified implementation - in production you'd store messages in a database
-      const newMessages = [];
+      const newMessages: any[] = [];
       
       // For now, return empty array - this would be implemented with proper message storage
       res.json({ 
