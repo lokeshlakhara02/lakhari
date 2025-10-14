@@ -134,7 +134,9 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        // ICE candidate will be sent by the parent component
+        // Store the candidate to be sent by the parent component
+        console.log('ICE candidate generated:', event.candidate);
+        // The parent component will handle sending this via WebSocket
       }
     };
 
@@ -406,6 +408,17 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
     }
   }, []);
 
+  const sendIceCandidate = useCallback((candidate: RTCIceCandidateInit, sendMessage: (message: any) => void, sessionId?: string) => {
+    if (candidate && sendMessage) {
+      sendMessage({
+        type: 'webrtc_ice_candidate',
+        sessionId,
+        candidate,
+      });
+      console.log('ICE candidate sent:', candidate);
+    }
+  }, []);
+
   const toggleVideo = useCallback(() => {
     if (localStream) {
       const videoTrack = localStream.getVideoTracks()[0];
@@ -470,6 +483,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
     createAnswer,
     handleAnswer,
     addIceCandidate,
+    sendIceCandidate,
     toggleVideo,
     toggleAudio,
     endCall,

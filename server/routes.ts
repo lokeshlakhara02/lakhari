@@ -533,22 +533,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         score += interestScore;
       }
       
-      // Gender-based matching score (40 points max)
+      // Gender-based matching score (30 points max) - reduced to allow more matches
       let genderMatch = false;
       if (gender && user.gender) {
         // Male users prefer female matches, Female users prefer male matches
         if ((gender === 'male' && user.gender === 'female') || 
             (gender === 'female' && user.gender === 'male')) {
-          score += 40; // Maximum gender preference bonus
+          score += 30; // Maximum gender preference bonus
           genderMatch = true;
         } else if (gender === 'other' || user.gender === 'other') {
           score += 20; // Neutral bonus for 'other' gender
         } else {
-          score += 5; // Small bonus for same gender (still allowed but lower priority)
+          score += 10; // Increased bonus for same gender to allow more matches
         }
       } else {
         // If gender is not specified, give neutral score
-        score += 15;
+        score += 20;
       }
       
       // Wait time bonus (15 points max) - reduced to make room for gender scoring
@@ -586,9 +586,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Determine match quality based on score and gender match
       let matchQuality: 'high' | 'medium' | 'random' = 'random';
-      if (bestMatch.score > 60 || (bestMatch.score > 40 && bestMatch.genderMatch)) {
+      if (bestMatch.score > 50 || (bestMatch.score > 35 && bestMatch.genderMatch)) {
         matchQuality = 'high';
-      } else if (bestMatch.score > 30 || bestMatch.genderMatch) {
+      } else if (bestMatch.score > 25 || bestMatch.genderMatch) {
         matchQuality = 'medium';
       }
 
@@ -628,21 +628,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Broadcast updated queue status to remaining users
       broadcastQueueUpdates(chatType, interests);
     } else {
-      // Calculate dynamic wait time based on current queue
+      // If there are exactly 2 users waiting, match them immediately
       const totalWaiting = waitingUsers.length + 1;
-      const estimatedWait = totalWaiting < 5 ? 15 : Math.min(120, totalWaiting * 10);
-      
-      console.log(`No match found for user ${ws.userId}, waiting in queue. Position: ${totalWaiting}, Wait time: ${estimatedWait}s`);
-      
-      ws.send(JSON.stringify({ 
-        type: 'waiting_for_match',
-        estimatedWaitTime: estimatedWait,
-        queuePosition: totalWaiting,
-        totalInQueue: totalWaiting
-      }));
-      
-      // Send periodic queue updates
-      startQueueUpdates(ws, chatType, interests);
+      if (totalWaiting === 2) {
+        console.log(`Only 2 users waiting, matching immediately: ${ws.userId} and ${waitingUsers[0].id}`);
+        
+        const otherUser = waitingUsers[0];
+        
+        // Create chat session
+        const session = await storage.createChatSession({
+          user1Id: ws.userId,
+          user2Id: otherUser.id,
+          type: chatType,
+          interests: interests || [],
+          status: 'connected',
+        });
+
+        // Update both users
+        await storage.updateOnlineUser(ws.userId, { isWaiting: false });
+        await storage.updateOnlineUser(otherUser.id, { isWaiting: false });
+
+        // Notify both users
+        const matchMessage1 = {
+          type: 'match_found',
+          sessionId: session.id,
+          partnerId: otherUser.id,
+          sharedInterests: [],
+          matchQuality: 'random' as const,
+          matchScore: 50
+        };
+        ws.send(JSON.stringify(matchMessage1));
+
+        const partnerSocket = findSocketByUserId(otherUser.id);
+        if (partnerSocket) {
+          const matchMessage2 = {
+            type: 'match_found',
+            sessionId: session.id,
+            partnerId: ws.userId,
+            sharedInterests: [],
+            matchQuality: 'random' as const,
+            matchScore: 50
+          };
+          partnerSocket.send(JSON.stringify(matchMessage2));
+        }
+      } else {
+        // Calculate dynamic wait time based on current queue
+        const estimatedWait = totalWaiting < 5 ? 5 : Math.min(30, totalWaiting * 5);
+        
+        console.log(`No match found for user ${ws.userId}, waiting in queue. Position: ${totalWaiting}, Wait time: ${estimatedWait}s`);
+        
+        ws.send(JSON.stringify({ 
+          type: 'waiting_for_match',
+          estimatedWaitTime: estimatedWait,
+          queuePosition: totalWaiting,
+          totalInQueue: totalWaiting
+        }));
+        
+        // Send periodic queue updates
+        startQueueUpdates(ws, chatType, interests);
+      }
     }
   }
 

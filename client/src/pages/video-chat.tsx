@@ -62,10 +62,17 @@ export default function VideoChat() {
     createAnswer,
     handleAnswer,
     addIceCandidate,
+    sendIceCandidate,
     checkPermissions,
     requestPermissions,
     peerConnection
-  } = useWebRTC();
+  } = useWebRTC((stream) => {
+    // This callback will be called when remote stream is received
+    console.log('Remote stream received:', stream);
+    if (remoteVideoRef.current && stream) {
+      remoteVideoRef.current.srcObject = stream;
+    }
+  });
 
   // Initialize media access gracefully
   useEffect(() => {
@@ -316,6 +323,18 @@ export default function VideoChat() {
         console.error('Failed to add ICE candidate:', error);
       }
     };
+
+    // Handle sending ICE candidates when they are generated
+    useEffect(() => {
+      if (peerConnection && session?.id) {
+        const pc = peerConnection;
+        pc.onicecandidate = (event) => {
+          if (event.candidate) {
+            sendIceCandidate(event.candidate, sendMessage, session.id);
+          }
+        };
+      }
+    }, [peerConnection, session?.id, sendIceCandidate, sendMessage]);
 
     const handleChatEnded = () => {
       setConnectionStatus('ended');
