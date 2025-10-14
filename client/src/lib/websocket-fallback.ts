@@ -382,10 +382,7 @@ export class HybridConnection {
             this.lastHeartbeat = Date.now();
             
             const handler = this.messageHandlers.get(message.type);
-            console.log(`🔍 Looking for handler for message type: ${message.type}`);
-            console.log(`📋 Available handlers:`, Array.from(this.messageHandlers.keys()));
             if (handler) {
-              console.log(`✅ Found handler for ${message.type}, calling it...`);
               handler(message);
             } else {
               console.warn(`⚠️ No handler found for message type: ${message.type}`);

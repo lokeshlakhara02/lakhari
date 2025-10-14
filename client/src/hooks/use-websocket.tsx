@@ -405,12 +405,10 @@ export function useWebSocket() {
     
     // Enhanced handler with error protection
     const protectedHandler = (data: any) => {
-      console.log(`🔔 Calling handler for message type: ${type}`, data);
       try {
         handler(data);
         setConnectionMetrics(prev => ({ ...prev, messagesReceived: prev.messagesReceived + 1 }));
         lastMessageTime.current = Date.now();
-        console.log(`✅ Handler for ${type} executed successfully`);
       } catch (error) {
         console.error(`❌ Error in message handler for ${type}:`, error);
         const handlerError = createWebSocketError(
@@ -423,12 +421,10 @@ export function useWebSocket() {
     };
     
     messageHandlers.current.set(type, protectedHandler);
-    console.log(`📝 Registered handler for message type: ${type}`);
     
     // Also register with the current hybrid connection if it exists
     if (hybridConnection.current) {
       hybridConnection.current.on(type, protectedHandler);
-      console.log(`🔗 Also registered handler with hybrid connection for: ${type}`);
     }
   }, [createWebSocketError]);
 
@@ -445,7 +441,7 @@ export function useWebSocket() {
       hybridConnection.current.off(type);
     }
     
-    console.log(`Message handler unregistered for type: ${type}`);
+    // Message handler unregistered silently
   }, []);
 
   // Enhanced connection monitoring

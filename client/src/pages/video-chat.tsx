@@ -268,18 +268,16 @@ export default function VideoChat() {
   }, [startLocalStream]);
   
   const recoverWebRTC = useCallback(async () => {
-    console.log('🔄 WebRTC recovery triggered - attempting to restore connection...');
+    console.log('🔄 WebRTC recovery triggered');
     
     try {
       // Don't stop the local stream during recovery
       // Just try to re-establish the peer connection
       if (peerConnection && localStream) {
-        console.log('🔄 Restarting ICE gathering...');
         // The peer connection will handle its own recovery
         // We just need to make sure the local stream stays active
-        console.log('✅ Local stream preserved during recovery');
       } else {
-        console.log('⚠️ No peer connection or local stream to recover');
+        console.warn('⚠️ No peer connection or local stream to recover');
       }
     } catch (error) {
       console.error('❌ WebRTC recovery failed:', error);
@@ -288,7 +286,6 @@ export default function VideoChat() {
   
   const recoverConnection = useCallback(async () => {
     // Connection recovery is handled by the WebSocket hook
-    console.log('Connection recovery triggered');
   }, []);
   
   const recoverPermissions = useCallback(async () => {
@@ -357,11 +354,11 @@ export default function VideoChat() {
         await startLocalStream(true, true);
         
         if (isMounted) {
-          setMediaAccessStatus({
-            hasVideo: true,
-            hasAudio: true,
-            error: null
-          });
+        setMediaAccessStatus({
+          hasVideo: true,
+          hasAudio: true,
+          error: null
+        });
           console.log('Media access initialized successfully');
         }
       } catch (error) {
@@ -380,11 +377,11 @@ export default function VideoChat() {
           await startLocalStream(false, true);
           
           if (isMounted) {
-            setMediaAccessStatus({
-              hasVideo: false,
-              hasAudio: true,
-              error: 'Video access denied, audio only mode'
-            });
+          setMediaAccessStatus({
+            hasVideo: false,
+            hasAudio: true,
+            error: 'Video access denied, audio only mode'
+          });
             console.log('Audio-only mode initialized');
           }
         } catch (audioError) {
@@ -397,11 +394,11 @@ export default function VideoChat() {
             await startLocalStream(true, false);
             
             if (isMounted) {
-              setMediaAccessStatus({
-                hasVideo: true,
-                hasAudio: false,
-                error: 'Audio access denied, video only mode'
-              });
+            setMediaAccessStatus({
+              hasVideo: true,
+              hasAudio: false,
+              error: 'Audio access denied, video only mode'
+            });
               console.log('Video-only mode initialized');
             }
           } catch (videoError) {
@@ -447,18 +444,21 @@ export default function VideoChat() {
     const localVideo = localVideoRef.current;
     const localVideoDesktop = localVideoDesktopRef.current;
     
-    const updateVideoStream = (video: HTMLVideoElement | null) => {
+    // Local video effect triggered
+    
+    const updateVideoStream = (video: HTMLVideoElement | null, name: string) => {
       if (video && localStream) {
         // Only set srcObject if it's different to prevent flickering
         if (video.srcObject !== localStream) {
           video.srcObject = localStream;
+          
           // Use a more robust play() approach
           const playPromise = video.play();
           if (playPromise !== undefined) {
             playPromise.catch(error => {
               // Ignore AbortError as it's expected when new streams are loaded
               if (error.name !== 'AbortError') {
-                console.error('Video play error:', error);
+                console.error(`❌ ${name} video play error:`, error);
               }
             });
           }
@@ -468,8 +468,8 @@ export default function VideoChat() {
 
     // Add a small delay to prevent rapid updates
     const timeoutId = setTimeout(() => {
-      updateVideoStream(localVideo);
-      updateVideoStream(localVideoDesktop);
+      updateVideoStream(localVideo, 'local');
+      updateVideoStream(localVideoDesktop, 'localDesktop');
     }, 100); // 100ms delay to debounce updates
 
     return () => {
@@ -485,24 +485,22 @@ export default function VideoChat() {
 
   useEffect(() => {
     const remoteVideo = remoteVideoRef.current;
-    console.log('Remote stream effect triggered:', { remoteVideo: !!remoteVideo, remoteStream: !!remoteStream });
     
     if (remoteVideo && remoteStream) {
-      console.log('Setting remote video stream:', remoteStream);
       // Only set srcObject if it's different to prevent flickering
       if (remoteVideo.srcObject !== remoteStream) {
         // Add a small delay to prevent rapid updates
         const timeoutId = setTimeout(() => {
           if (remoteVideo && remoteStream) {
-            console.log('Actually setting remote video srcObject');
             remoteVideo.srcObject = remoteStream;
+            
             // Use a more robust play() approach
             const playPromise = remoteVideo.play();
             if (playPromise !== undefined) {
               playPromise.catch(error => {
                 // Ignore AbortError as it's expected when new streams are loaded
                 if (error.name !== 'AbortError') {
-                  console.error('Remote video play error:', error);
+                  console.error('❌ Remote video play error:', error);
                 }
               });
             }
@@ -514,6 +512,7 @@ export default function VideoChat() {
         };
       }
     }
+    
     return () => {
       if (remoteVideo && remoteVideo.srcObject) {
         remoteVideo.srcObject = null;
@@ -627,17 +626,13 @@ export default function VideoChat() {
 
   // Stable message handlers using useCallback
   const handleWaitingForMatch = useCallback(() => {
-    console.log('handleWaitingForMatch called');
-    setConnectionStatus('waiting');
+      console.log('handleWaitingForMatch called');
+      setConnectionStatus('waiting');
   }, []);
 
   const handleMatchFound = useCallback(async (data: any) => {
-    console.log('🎉 handleMatchFound called with data:', data);
-    console.log('Current connection status:', connectionStatus);
-    console.log('Current session:', session);
-    console.log('Local stream status:', localStream ? 'Active' : 'Inactive');
-    console.log('Peer connection status:', peerConnection ? 'Active' : 'Inactive');
-    
+    console.log('🎉 Match found! Initializing WebRTC...');
+      
     try {
       const newSession = {
         id: data.sessionId,
@@ -663,78 +658,65 @@ export default function VideoChat() {
       );
       setSharedInterests(shared);
 
-        // Ensure peer connection is ready for WebRTC
-        if (!peerConnection && localStream) {
-          console.log('🔄 Initializing peer connection for match...');
-          // The peer connection should be initialized by the useWebRTC hook
-          // when localStream is set, but let's make sure it's ready
-          setTimeout(() => {
-            console.log('⏰ Retrying WebRTC offer creation after peer connection initialization...');
-            // This will be handled by the next part of the code
-          }, 1000);
+        // Initialize WebRTC if not ready
+        if (!localStream) {
+          console.log('🔄 Starting local stream for WebRTC...');
+          try {
+            await startLocalStream(true, true);
+          } catch (error) {
+            console.error('❌ Failed to start local stream:', error);
+            addError({
+              type: 'webrtc',
+              message: `Failed to start local stream: ${error instanceof Error ? error.message : 'Unknown error'}`,
+              recoverable: true
+            });
+            return;
+          }
         }
 
-        // Enhanced WebRTC offer creation with retry
-        const pc = peerConnection;
-        console.log('🔍 WebRTC offer creation check:', {
-          peerConnection: !!pc,
-          createOffer: !!createOffer,
-          sendMessage: !!sendMessage,
-          localStream: !!localStream,
-          sessionId: data.sessionId
-        });
+        // Wait for peer connection to be ready
+        let retryCount = 0;
+        const maxRetries = 10;
         
-        if (pc && createOffer && sendMessage) {
-          let offerCreated = false;
-          let attempts = 0;
-          const maxAttempts = 3;
-          
-          while (!offerCreated && attempts < maxAttempts) {
-            try {
-              attempts++;
-              console.log(`🎯 Creating WebRTC offer (attempt ${attempts}/${maxAttempts})`);
-              console.log('Peer connection state:', pc.connectionState);
-              console.log('ICE connection state:', pc.iceConnectionState);
-              
-              const offer = await createOffer();
-              if (offer) {
-                console.log('✅ WebRTC offer created successfully:', offer.type);
-                sendMessage({
-                  type: 'webrtc_offer',
-                  sessionId: data.sessionId,
-                  offer,
-                });
-                offerCreated = true;
-                console.log('📤 WebRTC offer sent successfully');
-              } else {
-                throw new Error('Failed to create offer - returned null');
-              }
-            } catch (error) {
-              console.error(`❌ Failed to create offer (attempt ${attempts}):`, error);
-              
-              if (attempts >= maxAttempts) {
-                addError({
-                  type: 'webrtc',
-                  message: `Failed to create WebRTC offer after ${maxAttempts} attempts: ${error instanceof Error ? error.message : 'Unknown error'}`,
-                  recoverable: true
-                });
-              } else {
-                // Wait before retry
-                await new Promise(resolve => setTimeout(resolve, 1000 * attempts));
-              }
-            }
-          }
-        } else {
-          console.error('❌ Cannot create WebRTC offer:', {
-            peerConnection: !!pc,
-            createOffer: !!createOffer,
-            sendMessage: !!sendMessage
-          });
+        while (!peerConnection && retryCount < maxRetries) {
+          console.log(`⏰ Waiting for peer connection... (${retryCount + 1}/${maxRetries})`);
+          await new Promise(resolve => setTimeout(resolve, 500));
+          retryCount++;
+        }
+
+        if (!peerConnection) {
+          console.error('❌ Peer connection not ready after waiting');
           addError({
             type: 'webrtc',
-            message: 'Cannot create WebRTC offer: missing peer connection or functions',
+            message: 'Peer connection not ready after initialization',
             recoverable: true
           });
+          return;
+        }
+
+        // Create WebRTC offer
+        if (createOffer && sendMessage) {
+          try {
+            console.log('🎯 Creating WebRTC offer...');
+          const offer = await createOffer();
+          if (offer) {
+              console.log('✅ WebRTC offer created, sending...');
+            sendMessage({
+              type: 'webrtc_offer',
+              sessionId: data.sessionId,
+              offer,
+            });
+            } else {
+              throw new Error('Failed to create offer - returned null');
+          }
+        } catch (error) {
+            console.error('❌ Failed to create WebRTC offer:', error);
+            addError({
+              type: 'webrtc',
+              message: `Failed to create WebRTC offer: ${error instanceof Error ? error.message : 'Unknown error'}`,
+              recoverable: true
+            });
+          }
         }
     } catch (error) {
       console.error('Error in handleMatchFound:', error);
@@ -749,7 +731,7 @@ export default function VideoChat() {
   const handleWebRTCOffer = useCallback(async (data: any) => {
     console.log('Handling WebRTC offer:', data);
     
-    const pc = peerConnection;
+      const pc = peerConnection;
     if (!pc || !createAnswer || !sendMessage || !data?.offer) {
       addError({
         type: 'webrtc',
@@ -827,11 +809,11 @@ export default function VideoChat() {
           attempts++;
           console.log(`Handling WebRTC answer (attempt ${attempts}/${maxAttempts})`);
           
-          await handleAnswer(data.answer);
+        await handleAnswer(data.answer);
           console.log('WebRTC answer handled successfully');
           break; // Success, exit retry loop
           
-        } catch (error) {
+      } catch (error) {
           console.error(`Failed to handle answer (attempt ${attempts}):`, error);
           
           if (attempts >= maxAttempts) {
@@ -864,11 +846,11 @@ export default function VideoChat() {
       return;
     }
     
-    try {
-      await addIceCandidate(data.candidate);
+      try {
+        await addIceCandidate(data.candidate);
       console.log('ICE candidate added successfully');
-    } catch (error) {
-      console.error('Failed to add ICE candidate:', error);
+      } catch (error) {
+        console.error('Failed to add ICE candidate:', error);
       // ICE candidate errors are usually not critical, but log them for debugging
       if (error instanceof Error && !error.message.includes('duplicate')) {
         addError({
@@ -903,122 +885,176 @@ export default function VideoChat() {
     }
   }, [session?.id, sendIceCandidate, sendMessage, peerConnection]);
 
+  // Update media access status based on local stream
+  useEffect(() => {
+    if (localStream) {
+      const videoTracks = localStream.getVideoTracks();
+      const audioTracks = localStream.getAudioTracks();
+      
+      setMediaAccessStatus({
+        hasVideo: videoTracks.length > 0,
+        hasAudio: audioTracks.length > 0,
+        error: null
+      });
+      
+      // Ensure video tracks are enabled
+      videoTracks.forEach((track) => {
+        if (!track.enabled) {
+          track.enabled = true;
+        }
+      });
+      
+      // Ensure audio tracks are enabled
+      audioTracks.forEach((track) => {
+        if (!track.enabled) {
+          track.enabled = true;
+        }
+      });
+    }
+  }, [localStream]);
+
+  // Periodic video stream health check
+  useEffect(() => {
+    if (!localStream) return;
+    
+    const healthCheckInterval = setInterval(() => {
+      if (localStream) {
+        const videoTracks = localStream.getVideoTracks();
+        
+        // Check if video tracks are still active
+        videoTracks.forEach((track) => {
+          if (track.readyState === 'ended') {
+            console.warn('⚠️ Video track has ended, attempting to restart...');
+            // The track has ended, we need to restart the stream
+            startLocalStream(true, true).catch(error => {
+              console.error('Failed to restart local stream:', error);
+            });
+          } else if (!track.enabled) {
+            track.enabled = true;
+          }
+        });
+      }
+    }, 5000); // Check every 5 seconds
+    
+    return () => clearInterval(healthCheckInterval);
+  }, [localStream, startLocalStream]);
+
+  // WebRTC connection states monitoring (silent)
+
   // WebSocket message handlers - stable references
   useEffect(() => {
     if (!isConnected) return;
 
     // Register main message handlers first
     if (onMessage) {
-      console.log('📡 Registering message handlers...');
       onMessage('waiting_for_match', handleWaitingForMatch);
       onMessage('match_found', handleMatchFound);
       onMessage('webrtc_offer', handleWebRTCOffer);
       onMessage('webrtc_answer', handleWebRTCAnswer);
       onMessage('webrtc_ice_candidate', handleIceCandidate);
-      console.log('✅ Message handlers registered successfully');
     }
 
     // Register additional message handlers
     if (onMessage) {
       onMessage('chat_ended', () => {
-        setConnectionStatus('ended');
-        setSession(null);
-        sessionStorage.removeItem('currentSessionId');
-        sessionStorage.removeItem('currentSessionType');
-        setTextMessages([]);
-        endCall();
+      setConnectionStatus('ended');
+      setSession(null);
+      sessionStorage.removeItem('currentSessionId');
+      sessionStorage.removeItem('currentSessionType');
+      setTextMessages([]);
+      endCall();
       });
-      
+
       onMessage('session_recovered', (data: any) => {
-        setSession({
-          id: data.sessionId,
-          partnerId: data.partnerId,
-          type: 'video',
-          status: 'connected',
-        });
-        setConnectionStatus('connected');
-        const recoveryMsg: Message = {
-          id: `recovery-${Date.now()}`,
-          content: '✅ Session recovered! Reconnecting video...',
-          senderId: 'system',
-          timestamp: new Date(),
-          isOwn: false,
-        };
-        setTextMessages([recoveryMsg]);
+      setSession({
+        id: data.sessionId,
+        partnerId: data.partnerId,
+        type: 'video',
+        status: 'connected',
       });
-      
+      setConnectionStatus('connected');
+      const recoveryMsg: Message = {
+        id: `recovery-${Date.now()}`,
+        content: '✅ Session recovered! Reconnecting video...',
+        senderId: 'system',
+        timestamp: new Date(),
+        isOwn: false,
+      };
+      setTextMessages([recoveryMsg]);
+      });
+
       onMessage('session_recovery_failed', () => {
-        sessionStorage.removeItem('currentSessionId');
-        sessionStorage.removeItem('currentSessionType');
-        const interests = JSON.parse(localStorage.getItem('interests') || '[]');
-        const gender = userGender || localStorage.getItem('gender') as 'male' | 'female' | 'other' | null;
-        sendMessage({
-          type: 'find_match',
-          chatType: 'video',
-          interests,
-          gender,
-        });
+      sessionStorage.removeItem('currentSessionId');
+      sessionStorage.removeItem('currentSessionType');
+      const interests = JSON.parse(localStorage.getItem('interests') || '[]');
+      const gender = userGender || localStorage.getItem('gender') as 'male' | 'female' | 'other' | null;
+      sendMessage({
+        type: 'find_match',
+        chatType: 'video',
+        interests,
+        gender,
       });
-      
+      });
+
       onMessage('partner_reconnected', () => {
-        const reconnectMsg: Message = {
-          id: `reconnect-${Date.now()}`,
-          content: '🔄 Your partner reconnected!',
-          senderId: 'system',
-          timestamp: new Date(),
-          isOwn: false,
-        };
-        setTextMessages(prev => [...prev, reconnectMsg]);
+      const reconnectMsg: Message = {
+        id: `reconnect-${Date.now()}`,
+        content: '🔄 Your partner reconnected!',
+        senderId: 'system',
+        timestamp: new Date(),
+        isOwn: false,
+      };
+      setTextMessages(prev => [...prev, reconnectMsg]);
       });
-      
+
       onMessage('message_received', (data: any) => {
-        const message: Message = {
-          id: data.message.id || Date.now().toString(),
-          content: data.message.content,
-          senderId: data.message.senderId || 'unknown',
-          timestamp: new Date(data.message.timestamp || Date.now()),
-          isOwn: false,
-          attachments: data.message.attachments || [],
-          hasEmoji: data.message.hasEmoji || false,
-        };
-        setTextMessages(prev => [...prev, message]);
+      const message: Message = {
+        id: data.message.id || Date.now().toString(),
+        content: data.message.content,
+        senderId: data.message.senderId || 'unknown',
+        timestamp: new Date(data.message.timestamp || Date.now()),
+        isOwn: false,
+        attachments: data.message.attachments || [],
+        hasEmoji: data.message.hasEmoji || false,
+      };
+      setTextMessages(prev => [...prev, message]);
       });
-      
+
       onMessage('message_sent', (data: any) => {
-        const message: Message = {
-          id: data.message.id || Date.now().toString(),
-          content: data.message.content,
-          senderId: data.message.senderId || userId || 'self',
-          timestamp: new Date(data.message.timestamp || Date.now()),
-          isOwn: true,
-          attachments: data.message.attachments || [],
-          hasEmoji: data.message.hasEmoji || false,
-        };
-        setTextMessages(prev => [...prev, message]);
+      const message: Message = {
+        id: data.message.id || Date.now().toString(),
+        content: data.message.content,
+        senderId: data.message.senderId || userId || 'self',
+        timestamp: new Date(data.message.timestamp || Date.now()),
+        isOwn: true,
+        attachments: data.message.attachments || [],
+        hasEmoji: data.message.hasEmoji || false,
+      };
+      setTextMessages(prev => [...prev, message]);
       });
       
       onMessage('gender_updated', (data: any) => {
-        console.log('Gender updated:', data.gender);
-      });
+      console.log('Gender updated:', data.gender);
+    });
     }
 
     return () => {
       if (offMessage) {
         // Clean up main handlers
-        offMessage('waiting_for_match');
-        offMessage('match_found');
-        offMessage('webrtc_offer');
-        offMessage('webrtc_answer');
-        offMessage('webrtc_ice_candidate');
+      offMessage('waiting_for_match');
+      offMessage('match_found');
+      offMessage('webrtc_offer');
+      offMessage('webrtc_answer');
+      offMessage('webrtc_ice_candidate');
         
         // Clean up additional handlers
-        offMessage('chat_ended');
-        offMessage('session_recovered');
-        offMessage('session_recovery_failed');
-        offMessage('partner_reconnected');
+      offMessage('chat_ended');
+      offMessage('session_recovered');
+      offMessage('session_recovery_failed');
+      offMessage('partner_reconnected');
         offMessage('message_received');
         offMessage('message_sent');
-        offMessage('gender_updated');
+      offMessage('gender_updated');
       }
     };
   }, [
