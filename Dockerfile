@@ -16,6 +16,9 @@ COPY . .
 # Build the application
 RUN npm run build
 
+# Verify build output exists
+RUN ls -la dist/ && ls -la dist/public/
+
 # Expose port
 EXPOSE 8080
 
