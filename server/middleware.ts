@@ -8,7 +8,7 @@ interface RateLimitEntry {
 
 const rateLimitStore = new Map<string, RateLimitEntry>();
 const RATE_LIMIT_WINDOW = 15 * 60 * 1000; // 15 minutes in milliseconds
-const RATE_LIMIT_MAX_REQUESTS = parseInt(process.env.RATE_LIMIT_MAX || '100', 10);
+const RATE_LIMIT_MAX_REQUESTS = parseInt(process.env.RATE_LIMIT_MAX || '1000', 10);
 
 // Cleanup old entries every 5 minutes
 setInterval(() => {
@@ -32,7 +32,8 @@ export function rateLimiter(req: Request, res: Response, next: NextFunction) {
     '/api/stats',
     '/api/health',
     '/api/analytics',
-    '/api/interests/suggestions'
+    '/api/interests/suggestions',
+    '/api/poll'
   ];
   
   if (publicEndpoints.some(endpoint => req.path.startsWith(endpoint))) {

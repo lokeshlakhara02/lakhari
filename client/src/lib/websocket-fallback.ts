@@ -195,7 +195,7 @@ export class HybridConnection {
     }
 
     this.fallback = new WebSocketFallback({
-      interval: 2000, // Poll every 2 seconds
+      interval: 5000, // Poll every 5 seconds instead of 2
       endpoint: this.fallbackEndpoint,
       onMessage: (message) => {
         const handler = this.messageHandlers.get(message.type);
