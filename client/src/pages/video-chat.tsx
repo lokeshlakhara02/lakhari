@@ -557,13 +557,17 @@ export default function VideoChat() {
   };
 
   const handleNextStranger = () => {
+    console.log('Next stranger clicked - current status:', connectionStatus);
+    
+    // Clear any existing session storage
+    sessionStorage.removeItem('currentSessionId');
+    sessionStorage.removeItem('currentSessionType');
+    
+    const interests = JSON.parse(localStorage.getItem('interests') || '[]');
+    const gender = userGender || localStorage.getItem('gender') as 'male' | 'female' | 'other' | null;
+    
     if (session) {
-      // Clear session storage before finding new match
-      sessionStorage.removeItem('currentSessionId');
-      sessionStorage.removeItem('currentSessionType');
-      
-      const interests = JSON.parse(localStorage.getItem('interests') || '[]');
-      const gender = userGender || localStorage.getItem('gender') as 'male' | 'female' | 'other' | null;
+      // If we have an active session, end it and find a new match
       sendMessage({
         type: 'next_stranger',
         sessionId: session.id,
@@ -571,9 +575,21 @@ export default function VideoChat() {
         gender,
         interests,
       });
-      // Clear messages when moving to next stranger (ephemeral chat)
-      setTextMessages([]);
+    } else {
+      // If no active session, just start looking for a new match
+      sendMessage({
+        type: 'find_match',
+        chatType: 'video',
+        interests,
+        gender,
+      });
     }
+    
+    // Clear messages when moving to next stranger (ephemeral chat)
+    setTextMessages([]);
+    
+    // Reset connection status to waiting
+    setConnectionStatus('waiting');
   };
 
   const handleSendTextMessage = (content: string, attachments?: Attachment[]) => {
@@ -838,11 +854,10 @@ export default function VideoChat() {
                       <Maximize className="relative h-4 w-4 sm:h-6 sm:w-6" />
                     </Button>
                     
-                    {/* Next Stranger */}
+                    {/* Next Stranger - Always Available */}
                     <Button
                       onClick={handleNextStranger}
-                      disabled={connectionStatus !== 'connected'}
-                      className="group relative px-4 h-10 sm:px-6 sm:h-14 rounded-full bg-gradient-to-r from-primary via-secondary to-accent hover:shadow-2xl hover:shadow-primary/30 text-white font-semibold transform hover:scale-105 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none text-sm border border-white/20"
+                      className="group relative px-4 h-10 sm:px-6 sm:h-14 rounded-full bg-gradient-to-r from-primary via-secondary to-accent hover:shadow-2xl hover:shadow-primary/30 text-white font-semibold transform hover:scale-105 transition-all duration-300 text-sm border border-white/20"
                       data-testid="button-next-video"
                     >
                       <div className="absolute inset-0 rounded-full bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
@@ -864,6 +879,17 @@ export default function VideoChat() {
                     </Button>
                   </div>
                 </div>
+
+                {/* Floating Next Button - Always Visible */}
+                <Button
+                  onClick={handleNextStranger}
+                  className="fixed top-4 right-4 z-50 px-3 py-2 rounded-full bg-gradient-to-r from-primary via-secondary to-accent hover:shadow-2xl hover:shadow-primary/30 text-white font-semibold transform hover:scale-105 transition-all duration-300 text-sm border border-white/20 shadow-lg"
+                  data-testid="floating-next-button"
+                  title="Find next stranger"
+                >
+                  <span className="hidden sm:inline mr-2">Next</span>
+                  <SkipForward className="h-4 w-4" />
+                </Button>
               </div>
             </div>
 

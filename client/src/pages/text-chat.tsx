@@ -295,9 +295,17 @@ export default function TextChat() {
   };
 
   const handleNextStranger = () => {
+    console.log('Next stranger clicked - current status:', connectionStatus);
+    
+    // Clear any existing session storage
+    sessionStorage.removeItem('currentSessionId');
+    sessionStorage.removeItem('currentSessionType');
+    
+    const interests = JSON.parse(localStorage.getItem('interests') || '[]');
+    const gender = userGender || localStorage.getItem('gender') as 'male' | 'female' | 'other' | null;
+    
     if (session) {
-      const interests = JSON.parse(localStorage.getItem('interests') || '[]');
-      const gender = userGender || localStorage.getItem('gender') as 'male' | 'female' | 'other' | null;
+      // If we have an active session, end it and find a new match
       sendMessage({
         type: 'next_stranger',
         sessionId: session.id,
@@ -305,7 +313,21 @@ export default function TextChat() {
         interests,
         gender,
       });
+    } else {
+      // If no active session, just start looking for a new match
+      sendMessage({
+        type: 'find_match',
+        chatType: 'text',
+        interests,
+        gender,
+      });
     }
+    
+    // Clear messages when moving to next stranger (ephemeral chat)
+    setMessages([]);
+    
+    // Reset connection status to waiting
+    setConnectionStatus('waiting');
   };
 
   const formatTime = (date: Date) => {
@@ -374,8 +396,7 @@ export default function TextChat() {
                 variant="outline"
                 size="sm"
                 onClick={handleNextStranger}
-                disabled={connectionStatus !== 'connected'}
-                className="flex-1 sm:flex-initial bg-gradient-to-r from-primary/10 to-secondary/10 border-primary/20 hover:border-primary/40 disabled:opacity-50 rounded-xl"
+                className="flex-1 sm:flex-initial bg-gradient-to-r from-primary/10 to-secondary/10 border-primary/20 hover:border-primary/40 rounded-xl"
                 data-testid="button-next-stranger"
               >
                 <SkipForward className="h-4 w-4 mr-2" />
