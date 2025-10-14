@@ -155,10 +155,18 @@ export function useWebSocket() {
 
   const onMessage = useCallback((type: string, handler: (data: any) => void) => {
     messageHandlers.current.set(type, handler);
+    // Also register with the current hybrid connection if it exists
+    if (hybridConnection.current) {
+      hybridConnection.current.on(type, handler);
+    }
   }, []);
 
   const offMessage = useCallback((type: string) => {
     messageHandlers.current.delete(type);
+    // Also unregister from the current hybrid connection if it exists
+    if (hybridConnection.current) {
+      hybridConnection.current.off(type);
+    }
   }, []);
 
   useEffect(() => {
