@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { useWebSocket } from '@/hooks/use-websocket';
@@ -240,10 +240,10 @@ export default function VideoChat() {
   useEffect(() => {
     if (!isConnected) return;
 
-    const handleWaitingForMatch = () => {
+    const handleWaitingForMatch = useCallback(() => {
       console.log('handleWaitingForMatch called');
       setConnectionStatus('waiting');
-    };
+    }, []);
 
     const handleMatchFound = async (data: any) => {
       console.log('handleMatchFound called with data:', data);
@@ -274,7 +274,7 @@ export default function VideoChat() {
 
       // Start WebRTC offer - use current peerConnection ref
       const pc = peerConnection;
-      if (pc) {
+      if (pc && createOffer && sendMessage) {
         try {
           const offer = await createOffer();
           if (offer) {
@@ -292,7 +292,7 @@ export default function VideoChat() {
 
     const handleWebRTCOffer = async (data: any) => {
       const pc = peerConnection;
-      if (pc) {
+      if (pc && createAnswer && sendMessage && data?.offer) {
         try {
           const answer = await createAnswer(data.offer);
           if (answer) {
@@ -309,51 +309,55 @@ export default function VideoChat() {
     };
 
     const handleWebRTCAnswer = async (data: any) => {
-      try {
-        await handleAnswer(data.answer);
-      } catch (error) {
-        console.error('Failed to handle answer:', error);
+      if (handleAnswer && data?.answer) {
+        try {
+          await handleAnswer(data.answer);
+        } catch (error) {
+          console.error('Failed to handle answer:', error);
+        }
       }
     };
 
     const handleIceCandidate = async (data: any) => {
-      try {
-        await addIceCandidate(data.candidate);
-      } catch (error) {
-        console.error('Failed to add ICE candidate:', error);
+      if (addIceCandidate && data?.candidate) {
+        try {
+          await addIceCandidate(data.candidate);
+        } catch (error) {
+          console.error('Failed to add ICE candidate:', error);
+        }
       }
     };
 
-    // Handle sending ICE candidates when they are generated
-    useEffect(() => {
-      try {
-        if (peerConnection && session?.id && sendMessage && sendIceCandidate) {
-          console.log('Setting up ICE candidate handler for session:', session.id);
-          const pc = peerConnection;
+    // Handle sending ICE candidates when they are generated - temporarily disabled
+    // useEffect(() => {
+    //   try {
+    //     if (peerConnection && session?.id && sendMessage && sendIceCandidate) {
+    //       console.log('Setting up ICE candidate handler for session:', session.id);
+    //       const pc = peerConnection;
           
-          if (pc && typeof pc === 'object' && 'onicecandidate' in pc) {
-            pc.onicecandidate = (event) => {
-              if (event && event.candidate && sendMessage && sendIceCandidate) {
-                sendIceCandidate(event.candidate, sendMessage, session.id);
-              }
-            };
-          }
+    //       if (pc && typeof pc === 'object' && 'onicecandidate' in pc) {
+    //         pc.onicecandidate = (event) => {
+    //           if (event && event.candidate && sendMessage && sendIceCandidate) {
+    //             sendIceCandidate(event.candidate, sendMessage, session.id);
+    //           }
+    //         };
+    //       }
           
-          // Cleanup function to remove the event listener
-          return () => {
-            try {
-              if (pc && typeof pc === 'object' && 'onicecandidate' in pc) {
-                pc.onicecandidate = null;
-              }
-            } catch (cleanupError) {
-              console.error('Error during ICE candidate cleanup:', cleanupError);
-            }
-          };
-        }
-      } catch (error) {
-        console.error('Error setting up ICE candidate handler:', error);
-      }
-    }, [session?.id, sendIceCandidate, sendMessage]);
+    //       // Cleanup function to remove the event listener
+    //       return () => {
+    //         try {
+    //           if (pc && typeof pc === 'object' && 'onicecandidate' in pc) {
+    //             pc.onicecandidate = null;
+    //           }
+    //         } catch (cleanupError) {
+    //           console.error('Error during ICE candidate cleanup:', cleanupError);
+    //         }
+    //       };
+    //     }
+    //   } catch (error) {
+    //     console.error('Error setting up ICE candidate handler:', error);
+    //   }
+    // }, [session?.id, sendIceCandidate, sendMessage]);
 
     const handleChatEnded = () => {
       setConnectionStatus('ended');
@@ -439,35 +443,39 @@ export default function VideoChat() {
     };
 
     // Register message handlers
-    onMessage('waiting_for_match', handleWaitingForMatch);
-    onMessage('match_found', handleMatchFound);
-    onMessage('webrtc_offer', handleWebRTCOffer);
-    onMessage('webrtc_answer', handleWebRTCAnswer);
-    onMessage('webrtc_ice_candidate', handleIceCandidate);
-    onMessage('chat_ended', handleChatEnded);
-    onMessage('message_received', handleMessageReceived);
-    onMessage('message_sent', handleMessageSent);
-    onMessage('session_recovered', handleSessionRecovered);
-    onMessage('session_recovery_failed', handleSessionRecoveryFailed);
-    onMessage('partner_reconnected', handlePartnerReconnected);
-    onMessage('gender_updated', (data) => {
-      // Gender was successfully updated
-      console.log('Gender updated:', data.gender);
-    });
+    if (onMessage) {
+      onMessage('waiting_for_match', handleWaitingForMatch);
+      onMessage('match_found', handleMatchFound);
+      onMessage('webrtc_offer', handleWebRTCOffer);
+      onMessage('webrtc_answer', handleWebRTCAnswer);
+      onMessage('webrtc_ice_candidate', handleIceCandidate);
+      onMessage('chat_ended', handleChatEnded);
+      onMessage('message_received', handleMessageReceived);
+      onMessage('message_sent', handleMessageSent);
+      onMessage('session_recovered', handleSessionRecovered);
+      onMessage('session_recovery_failed', handleSessionRecoveryFailed);
+      onMessage('partner_reconnected', handlePartnerReconnected);
+      onMessage('gender_updated', (data) => {
+        // Gender was successfully updated
+        console.log('Gender updated:', data.gender);
+      });
+    }
 
     return () => {
-      offMessage('waiting_for_match');
-      offMessage('match_found');
-      offMessage('webrtc_offer');
-      offMessage('webrtc_answer');
-      offMessage('webrtc_ice_candidate');
-      offMessage('chat_ended');
-      offMessage('message_received');
-      offMessage('message_sent');
-      offMessage('session_recovered');
-      offMessage('session_recovery_failed');
-      offMessage('partner_reconnected');
-      offMessage('gender_updated');
+      if (offMessage) {
+        offMessage('waiting_for_match');
+        offMessage('match_found');
+        offMessage('webrtc_offer');
+        offMessage('webrtc_answer');
+        offMessage('webrtc_ice_candidate');
+        offMessage('chat_ended');
+        offMessage('message_received');
+        offMessage('message_sent');
+        offMessage('session_recovered');
+        offMessage('session_recovery_failed');
+        offMessage('partner_reconnected');
+        offMessage('gender_updated');
+      }
     };
   }, [isConnected]); // Only depend on isConnected
 

@@ -106,8 +106,8 @@ export function securityHeaders(req: Request, res: Response, next: NextFunction)
   res.setHeader('Content-Security-Policy', cspDirectives.join('; '));
   
   // Strict Transport Security (HTTPS only)
-  if (req.secure || req.headers['x-forwarded-proto'] === 'https') {
-    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  if (req.secure || req.headers['x-forwarded-proto'] === 'https' || req.headers['x-forwarded-ssl'] === 'on') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
   }
   
   // Permissions Policy (formerly Feature Policy)

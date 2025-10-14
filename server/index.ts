@@ -12,6 +12,9 @@ declare module 'http' {
   }
 }
 
+// Trust proxy for Railway's reverse proxy
+app.set('trust proxy', 1);
+
 // Security headers (must be before other middleware)
 app.use(securityHeaders);
 
