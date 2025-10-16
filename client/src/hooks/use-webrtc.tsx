@@ -1448,8 +1448,13 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
   useEffect(() => {
     // Initialize peer connection immediately when hook mounts
     if (!peerConnection.current && !isInitialized) {
-      initializePeerConnection();
-      setIsInitialized(true);
+      try {
+        initializePeerConnection();
+        setIsInitialized(true);
+        console.log('🔗 Peer connection initialized on mount');
+      } catch (error) {
+        console.error('❌ Failed to initialize peer connection on mount:', error);
+      }
     }
     
     // Cleanup function to prevent multiple initializations

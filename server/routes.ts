@@ -503,7 +503,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       gender,
     });
 
-    // Enhanced matching algorithm with priority scoring and gender-based matching
+    // Enhanced matching algorithm with improved scoring and faster matching
     const waitingUsers = await storage.getWaitingUsers(chatType, interests);
     console.log(`📊 Found ${waitingUsers.length} waiting users for ${chatType} chat:`, waitingUsers.map(u => ({ id: u.id, gender: u.gender, interests: u.interests })));
     
@@ -514,6 +514,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       sharedInterests: string[];
       waitTime: number;
       genderMatch: boolean;
+      connectionQuality: number;
     }
     
     const matchScores: MatchScore[] = [];
@@ -527,36 +528,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
         interests?.includes(interest)
       ) || [];
       
-      // Interest matching score (40 points max) - reduced to make room for gender scoring
+      // Interest matching score (35 points max) - optimized for better matching
       if (interests && interests.length > 0) {
-        const interestScore = (userSharedInterests.length / interests.length) * 40;
+        const interestScore = (userSharedInterests.length / interests.length) * 35;
         score += interestScore;
+      } else {
+        // Give base score if no interests specified
+        score += 15;
       }
       
-      // Gender-based matching score (30 points max) - reduced to allow more matches
+      // Enhanced gender-based matching (35 points max)
       let genderMatch = false;
+      let connectionQuality = 0;
       if (gender && user.gender) {
         // Male users prefer female matches, Female users prefer male matches
         if ((gender === 'male' && user.gender === 'female') || 
             (gender === 'female' && user.gender === 'male')) {
-          score += 30; // Maximum gender preference bonus
+          score += 35; // Maximum gender preference bonus
           genderMatch = true;
+          connectionQuality = 100; // High quality match
         } else if (gender === 'other' || user.gender === 'other') {
-          score += 20; // Neutral bonus for 'other' gender
+          score += 25; // Good bonus for 'other' gender
+          connectionQuality = 80;
         } else {
-          score += 10; // Increased bonus for same gender to allow more matches
+          score += 15; // Lower bonus for same gender but still acceptable
+          connectionQuality = 60;
         }
       } else {
         // If gender is not specified, give neutral score
         score += 20;
+        connectionQuality = 70;
       }
       
-      // Wait time bonus (15 points max) - reduced to make room for gender scoring
+      // Wait time bonus (20 points max) - increased for fairness
       const waitTime = now - (user.lastSeen?.getTime() || now);
-      const waitTimeBonus = Math.min(15, (waitTime / 60000) * 3); // 3 points per minute
+      const waitTimeBonus = Math.min(20, (waitTime / 60000) * 4); // 4 points per minute
       score += waitTimeBonus;
       
-      // Random factor for variety (5 points max) - reduced for more predictable matching
+      // Connection quality bonus (10 points max)
+      score += (connectionQuality / 100) * 10;
+      
+      // Random factor for variety (5 points max)
       score += Math.random() * 5;
       
       matchScores.push({
@@ -564,12 +576,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         score,
         sharedInterests: userSharedInterests,
         waitTime,
-        genderMatch
+        genderMatch,
+        connectionQuality
       });
     }
     
-    // Sort by score (highest first)
-    matchScores.sort((a, b) => b.score - a.score);
+    // Sort by score (highest first), then by wait time (longest waiting first)
+    matchScores.sort((a, b) => {
+      if (Math.abs(a.score - b.score) < 5) {
+        return b.waitTime - a.waitTime; // If scores are close, prioritize longer waiting
+      }
+      return b.score - a.score;
+    });
     
     const bestMatch = matchScores[0];
 
@@ -584,11 +602,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: 'connected',
       });
 
-      // Determine match quality based on score and gender match
+      // Enhanced match quality determination
       let matchQuality: 'high' | 'medium' | 'random' = 'random';
-      if (bestMatch.score > 50 || (bestMatch.score > 35 && bestMatch.genderMatch)) {
+      if (bestMatch.score > 60 || (bestMatch.score > 45 && bestMatch.genderMatch)) {
         matchQuality = 'high';
-      } else if (bestMatch.score > 25 || bestMatch.genderMatch) {
+      } else if (bestMatch.score > 30 || bestMatch.genderMatch) {
         matchQuality = 'medium';
       }
 
@@ -603,7 +621,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         partnerId: bestMatch.user.id,
         sharedInterests: bestMatch.sharedInterests,
         matchQuality,
-        matchScore: Math.round(bestMatch.score)
+        matchScore: Math.round(bestMatch.score),
+        connectionQuality: Math.round(bestMatch.connectionQuality),
+        partnerGender: bestMatch.user.gender,
+        partnerInterests: bestMatch.user.interests || []
       };
       console.log(`Sending match_found to user ${ws.userId}:`, matchMessage1);
       ws.send(JSON.stringify(matchMessage1));
@@ -617,7 +638,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           partnerId: ws.userId,
           sharedInterests: bestMatch.sharedInterests,
           matchQuality,
-          matchScore: Math.round(bestMatch.score)
+          matchScore: Math.round(bestMatch.score),
+          connectionQuality: Math.round(bestMatch.connectionQuality),
+          partnerGender: ws.userId ? (await storage.getOnlineUser(ws.userId))?.gender : null,
+          partnerInterests: interests || []
         };
         console.log(`Sending match_found to partner ${bestMatch.user.id}:`, matchMessage2);
         partnerSocket.send(JSON.stringify(matchMessage2));
@@ -648,26 +672,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.updateOnlineUser(ws.userId, { isWaiting: false });
         await storage.updateOnlineUser(otherUser.id, { isWaiting: false });
 
-        // Notify both users
+        // Notify both users with enhanced data
         const matchMessage1 = {
           type: 'match_found',
           sessionId: session.id,
           partnerId: otherUser.id,
           sharedInterests: [],
           matchQuality: 'random' as const,
-          matchScore: 50
+          matchScore: 50,
+          connectionQuality: 70,
+          partnerGender: otherUser.gender,
+          partnerInterests: otherUser.interests || []
         };
         ws.send(JSON.stringify(matchMessage1));
 
         const partnerSocket = findSocketByUserId(otherUser.id);
         if (partnerSocket) {
+          const currentUser = await storage.getOnlineUser(ws.userId);
           const matchMessage2 = {
             type: 'match_found',
             sessionId: session.id,
             partnerId: ws.userId,
             sharedInterests: [],
             matchQuality: 'random' as const,
-            matchScore: 50
+            matchScore: 50,
+            connectionQuality: 70,
+            partnerGender: currentUser?.gender,
+            partnerInterests: interests || []
           };
           partnerSocket.send(JSON.stringify(matchMessage2));
         }

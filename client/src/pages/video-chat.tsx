@@ -144,8 +144,10 @@ export default function VideoChat() {
     setErrors(prev => [newError, ...prev.slice(0, 9)]); // Keep only last 10 errors
     setLastErrorTime(new Date());
     
-    // Use optimized logger
-    logger.videoChatError(error.type, newError.message, newError);
+    // Use optimized logger with rate limiting
+    if (process.env.NODE_ENV === 'development') {
+      logger.videoChatError(error.type, newError.message, newError);
+    }
     
     // Auto-recovery for recoverable errors
     if (error.recoverable && autoRecoveryEnabled) {
@@ -577,7 +579,7 @@ export default function VideoChat() {
     };
   }, [isConnected, session, addError]);
 
-  // Initialize WebRTC and camera when component mounts
+  // Initialize video chat - optimized flow
   useEffect(() => {
     if (!isConnected || !userId) {
       console.log('⏳ Waiting for WebSocket connection and userId...');
@@ -585,14 +587,39 @@ export default function VideoChat() {
     }
 
     // Prevent multiple initializations
-    if (localStream) {
-      console.log('✅ Local stream already exists, skipping initialization');
+    if (session) {
+      console.log('✅ Session already exists, skipping initialization');
       return;
     }
 
     console.log('🚀 Starting video chat initialization...');
 
-    // Initialize WebRTC and camera
+    // Try to recover existing session first
+    const savedSessionId = sessionStorage.getItem('currentSessionId');
+    const savedSessionType = sessionStorage.getItem('currentSessionType');
+    
+    if (savedSessionId && savedSessionType === 'video') {
+      console.log('🔄 Attempting session recovery...');
+      sendMessage({
+        type: 'get_session_recovery',
+        sessionId: savedSessionId,
+      });
+    } else {
+      // Start finding match immediately (before camera initialization)
+      const interests = JSON.parse(localStorage.getItem('interests') || '[]');
+      const gender = userGender || localStorage.getItem('gender') as 'male' | 'female' | 'other' | null;
+      const findMatchMessage = {
+        type: 'find_match',
+        chatType: 'video',
+        interests,
+        gender,
+      };
+      
+      console.log('🔍 Looking for video chat match...', { interests, gender });
+      sendMessage(findMatchMessage);
+    }
+
+    // Initialize camera and WebRTC in parallel (non-blocking)
     const initializeWebRTC = async () => {
       try {
         console.log('🎥 Initializing camera and WebRTC...');
@@ -600,14 +627,15 @@ export default function VideoChat() {
         
         // Wait for peer connection to be properly initialized
         let attempts = 0;
-        const maxAttempts = 50; // 5 seconds total
+        const maxAttempts = 100; // 10 seconds total - increased timeout
         while (!peerConnection && attempts < maxAttempts) {
           await new Promise(resolve => setTimeout(resolve, 100));
           attempts++;
         }
         
         if (!peerConnection) {
-          throw new Error('Peer connection not initialized after timeout');
+          console.warn('⚠️ Peer connection not initialized after timeout, will retry when match is found');
+          return;
         }
         
         console.log('✅ Camera and WebRTC initialized successfully');
@@ -621,45 +649,9 @@ export default function VideoChat() {
       }
     };
 
-    // Initialize WebRTC first
+    // Initialize WebRTC in background (non-blocking)
     initializeWebRTC();
-
-    // Prevent multiple WebSocket connections
-    if (session) {
-      console.log('✅ Session already exists, skipping match request');
-      return;
-    }
-
-    // Try to recover existing session first
-    const savedSessionId = sessionStorage.getItem('currentSessionId');
-    const savedSessionType = sessionStorage.getItem('currentSessionType');
-    
-    if (savedSessionId && savedSessionType === 'video') {
-      console.log('🔄 Attempting session recovery...');
-      // Attempt session recovery
-      sendMessage({
-        type: 'get_session_recovery',
-        sessionId: savedSessionId,
-      });
-    } else {
-      // Find a match when component mounts
-      const interests = JSON.parse(localStorage.getItem('interests') || '[]');
-      const gender = userGender || localStorage.getItem('gender') as 'male' | 'female' | 'other' | null;
-      const findMatchMessage = {
-        type: 'find_match',
-        chatType: 'video',
-        interests,
-        gender,
-      };
-      
-      console.log('🔍 Looking for video chat match...', { interests, gender });
-      
-      // Add a small delay to ensure WebSocket is fully ready
-      setTimeout(() => {
-        sendMessage(findMatchMessage);
-      }, 100);
-    }
-  }, [isConnected, userId, startLocalStream, addError, sendMessage, session, userGender, localStream, peerConnection]);
+  }, [isConnected, userId, sendMessage, session, userGender, addError, startLocalStream, peerConnection]);
 
   // Stable message handlers using useCallback
   const handleWaitingForMatch = useCallback(() => {
@@ -668,9 +660,15 @@ export default function VideoChat() {
   }, []);
 
   const handleMatchFound = useCallback(async (data: any) => {
-    // Prevent duplicate match handling
+    // Prevent duplicate match handling with enhanced checks
     if (session && session.id === data.sessionId) {
       console.log('⚠️ Duplicate match_found event ignored');
+      return;
+    }
+    
+    // Prevent handling if already processing a match
+    if (connectionStatus === 'connected' && session) {
+      console.log('⚠️ Already connected, ignoring new match');
       return;
     }
 
@@ -709,17 +707,25 @@ export default function VideoChat() {
             await startLocalStream(true, true);
           }
           
-          // Wait for peer connection to be properly initialized
+          // Wait for peer connection to be properly initialized with longer timeout
           let attempts = 0;
-          const maxAttempts = 50; // 5 seconds total
+          const maxAttempts = 100; // 10 seconds total - increased timeout
           while (!peerConnection && attempts < maxAttempts) {
             await new Promise(resolve => setTimeout(resolve, 100));
             attempts++;
           }
           
           if (!peerConnection) {
-            throw new Error('Peer connection not initialized after timeout');
+            console.error('❌ Peer connection not initialized after extended timeout');
+            addError({
+              type: 'webrtc',
+              message: 'Peer connection not initialized after extended timeout',
+              recoverable: true
+            });
+            return;
           }
+          
+          console.log('✅ Peer connection initialized successfully for match');
         } catch (error) {
           console.error('❌ Failed to initialize WebRTC:', error);
           addError({
