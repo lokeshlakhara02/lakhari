@@ -80,6 +80,15 @@ export default function VideoChat() {
   // Advanced features state
   const [showAdvancedControls, setShowAdvancedControls] = useState(false);
   const [connectionDiagnostics, setConnectionDiagnostics] = useState<any>(null);
+  const [componentMounted, setComponentMounted] = useState(false);
+
+  // Component mount effect
+  useEffect(() => {
+    setComponentMounted(true);
+    return () => {
+      setComponentMounted(false);
+    };
+  }, []);
   
   // Control bar visibility state
   const [isControlBarVisible, setIsControlBarVisible] = useState(true);
@@ -177,7 +186,7 @@ export default function VideoChat() {
     checkPermissions,
     requestPermissions,
     peerConnection
-  } = useWebRTC(useCallback((stream) => {
+  } = useWebRTC(useCallback((stream: MediaStream) => {
     // Enhanced remote stream callback with error handling
     console.log('🎥 Remote stream received in callback:', {
       streamId: stream.id,
@@ -465,7 +474,7 @@ export default function VideoChat() {
       }
     };
 
-    if (isMounted && !initializationAttempted) {
+    if (isMounted && !initializationAttempted && componentMounted) {
       initializeMedia();
     }
 
@@ -490,7 +499,7 @@ export default function VideoChat() {
         console.warn('⚠️ Error during unmount cleanup:', error);
       }
     };
-  }, [endCall]); // Include endCall in dependencies
+  }, [componentMounted]); // Add componentMounted dependency
 
   useEffect(() => {
     const localVideo = localVideoRef.current;
@@ -703,7 +712,7 @@ export default function VideoChat() {
         audioTrackEnabled: remoteStream.getAudioTracks().length > 0 ? remoteStream.getAudioTracks()[0].enabled : false
       });
     }
-  }, [connectionState, iceConnectionState, remoteStream, localStream, webrtcConnectionQuality, session, connectionStatus, peerConnection, isConnected, sendMessage]);
+  }, [connectionState, iceConnectionState, remoteStream, localStream, webrtcConnectionQuality, session, connectionStatus, isConnected]); // Remove peerConnection and sendMessage dependencies
 
   // Advanced connection diagnostics monitoring
   useEffect(() => {
@@ -711,7 +720,7 @@ export default function VideoChat() {
       const diagnostics = getConnectionDiagnostics();
       setConnectionDiagnostics(diagnostics);
     }
-  }, [connectionState, iceConnectionState, getConnectionDiagnostics]);
+  }, [connectionState, iceConnectionState]); // Remove getConnectionDiagnostics dependency
   
   // Connection stability monitoring
   useEffect(() => {

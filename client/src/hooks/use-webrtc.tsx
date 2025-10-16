@@ -71,7 +71,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
   // Advanced features
   const [connectionHealth, setConnectionHealth] = useState<ConnectionHealth>({
     isHealthy: false,
-    quality: 'unknown',
+    quality: 'poor',
     bandwidth: 0,
     latency: 0,
     packetLoss: 0,
@@ -81,6 +81,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
   const [isAdapting, setIsAdapting] = useState(false);
   const [recoveryAttempts, setRecoveryAttempts] = useState(0);
   const [maxRecoveryAttempts] = useState(options?.maxRetryAttempts || 5);
+  const [isInitialized, setIsInitialized] = useState(false);
   
   const peerConnection = useRef<RTCPeerConnection | null>(null);
   const [peerConnectionState, setPeerConnectionState] = useState<RTCPeerConnection | null>(null);
@@ -283,7 +284,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
     try {
       const videoTracks = localStream.getVideoTracks();
       
-      if (videoTracks.length > 0 && videoTracks[0].getConstraints) {
+      if (videoTracks.length > 0 && typeof videoTracks[0].getConstraints === 'function') {
         const currentConstraints = videoTracks[0].getConstraints();
         let newConstraints: MediaTrackConstraints = {};
 
@@ -403,10 +404,9 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
       iceTransportPolicy: 'all',
       bundlePolicy: 'max-bundle',
       rtcpMuxPolicy: 'require',
-      sdpSemantics: 'unified-plan',
+      // sdpSemantics: 'unified-plan', // Not available in all browsers
       // Enhanced configuration for better reliability
-      iceConnectionReceivingTimeout: 30000,
-      iceBackupCandidatePairPingInterval: 25000,
+      // Note: These properties may not be available in all browsers
     });
 
     // Set the peer connection immediately
@@ -434,7 +434,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
         }, 15000); // Increased to 15 seconds
         
         // Only proceed if we're in the right state and have a local stream
-        if (pc.signalingState === 'stable' && localStream.current) {
+        if (pc.signalingState === 'stable' && localStream) {
           console.log('Creating offer for negotiation...');
           // The parent component will handle creating the offer
         }
@@ -1452,11 +1452,12 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
   // Initialize peer connection on mount
   useEffect(() => {
     // Initialize peer connection immediately when hook mounts
-    if (!peerConnection.current) {
+    if (!peerConnection.current && !isInitialized) {
       console.log('🔄 Initializing peer connection on mount');
       initializePeerConnection();
+      setIsInitialized(true);
     }
-  }, [initializePeerConnection]);
+  }, [isInitialized]); // Only depend on isInitialized to prevent multiple initializations
 
   // Enhanced cleanup on unmount
   useEffect(() => {
@@ -1465,14 +1466,16 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
       // Don't call endCall here as it might cause infinite loops
       // Just clean up the peer connection directly
       if (peerConnection.current) {
-        peerConnection.current.close();
+        try {
+          peerConnection.current.close();
+        } catch (error) {
+          console.warn('Error closing peer connection during cleanup:', error);
+        }
         peerConnection.current = null;
       }
       setPeerConnectionState(null);
-      if (localStream.current) {
-        localStream.current.getTracks().forEach(track => track.stop());
-        localStream.current = null;
-      }
+      // Note: localStream is a state variable, not a ref, so we can't access it directly in cleanup
+      // The cleanup will be handled by the component unmounting
     };
   }, []); // Empty dependency array to run only on unmount
 
