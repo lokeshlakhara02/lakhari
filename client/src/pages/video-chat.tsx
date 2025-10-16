@@ -193,9 +193,7 @@ export default function VideoChat() {
     sendIceCandidate,
     checkPermissions,
     requestPermissions,
-    peerConnection,
-    debugPeerConnection,
-    forcePeerConnectionUpdate
+    peerConnection
   } = useWebRTC(useCallback((stream: MediaStream) => {
     // Remote stream callback - now handled by StableCamera component
     logger.videoChatInfo('webrtc', 'Remote stream received');
@@ -629,34 +627,18 @@ export default function VideoChat() {
         // Start local stream first
         await startLocalStream(true, true);
         
-        // Force peer connection state update
-        if (forcePeerConnectionUpdate) {
-          forcePeerConnectionUpdate();
-        }
-        
         // Wait for peer connection to be properly initialized
         let attempts = 0;
-        const maxAttempts = 150; // 15 seconds total - increased timeout
+        const maxAttempts = 100; // 10 seconds total - increased timeout
         while (!peerConnection && attempts < maxAttempts) {
           await new Promise(resolve => setTimeout(resolve, 100));
           attempts++;
-          
-          // Force update every 50 attempts
-          if (attempts % 50 === 0 && forcePeerConnectionUpdate) {
-            forcePeerConnectionUpdate();
-          }
         }
         
         if (!peerConnection) {
           console.warn('⚠️ Peer connection not initialized after timeout, will retry when match is found');
-          console.log('🔍 Debug: peerConnection state:', peerConnection);
-          if (debugPeerConnection) {
-            debugPeerConnection();
-          }
           return;
         }
-        
-        console.log('✅ Peer connection ready for video chat');
         
         console.log('✅ Camera and WebRTC initialized successfully');
         
@@ -703,11 +685,6 @@ export default function VideoChat() {
     try {
       console.log('🎉 Match found!', data);
       
-      // Debug peer connection state before proceeding
-      if (debugPeerConnection) {
-        debugPeerConnection();
-      }
-      
       const newSession = {
         id: data.sessionId,
         partnerId: data.partnerId,
@@ -741,30 +718,16 @@ export default function VideoChat() {
             await startLocalStream(true, true);
           }
           
-          // Force peer connection state update
-          if (forcePeerConnectionUpdate) {
-            forcePeerConnectionUpdate();
-          }
-          
           // Wait for peer connection to be properly initialized with longer timeout
           let attempts = 0;
-          const maxAttempts = 150; // 15 seconds total - increased timeout
+          const maxAttempts = 100; // 10 seconds total - increased timeout
           while (!peerConnection && attempts < maxAttempts) {
             await new Promise(resolve => setTimeout(resolve, 100));
             attempts++;
-            
-            // Force update every 25 attempts
-            if (attempts % 25 === 0 && forcePeerConnectionUpdate) {
-              forcePeerConnectionUpdate();
-            }
           }
           
           if (!peerConnection) {
             console.error('❌ Peer connection not initialized after extended timeout');
-            console.log('🔍 Debug: peerConnection state in match:', peerConnection);
-            if (debugPeerConnection) {
-              debugPeerConnection();
-            }
             addError({
               type: 'webrtc',
               message: 'Peer connection not initialized after extended timeout',
@@ -772,8 +735,6 @@ export default function VideoChat() {
             });
             return;
           }
-          
-          console.log('✅ Peer connection ready for match handling');
           
           // Verify peer connection is in a valid state
           if (peerConnection.signalingState === 'closed') {
@@ -796,8 +757,6 @@ export default function VideoChat() {
               });
               return;
             }
-            
-            console.log('✅ Peer connection reinitialized successfully');
           }
           
           console.log('✅ Peer connection initialized successfully for match');
@@ -1689,7 +1648,55 @@ export default function VideoChat() {
                     : 'opacity-0 translate-y-16 pointer-events-none'
                 }`}>
                   <div className="flex items-center gap-2 sm:gap-3 lg:gap-4 bg-gradient-to-r from-background/90 via-background/80 to-background/90 backdrop-blur-xl rounded-2xl px-3 py-2 sm:px-6 sm:py-4 border border-border/50 shadow-2xl">
-                     {/* Audio and Video controls removed from camera screen - always enabled */}
+                    {/* Audio Toggle */}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={toggleAudio}
+                      disabled={!mediaAccessStatus.hasAudio}
+                      className={`group relative w-10 h-10 sm:w-14 sm:h-14 rounded-full transition-all duration-300 hover:scale-110 ${
+                        !mediaAccessStatus.hasAudio
+                          ? 'bg-gray-500/20 text-gray-400 cursor-not-allowed'
+                          : isAudioEnabled 
+                            ? 'bg-green-500/20 hover:bg-green-500/30 text-green-400 shadow-lg shadow-green-500/20' 
+                            : 'bg-red-500/20 hover:bg-red-500/30 text-red-400 shadow-lg shadow-red-500/20'
+                      }`}
+                      data-testid="button-toggle-audio"
+                    >
+                      <div className="absolute inset-0 rounded-full bg-gradient-to-br from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                      {!mediaAccessStatus.hasAudio ? (
+                        <MicOff className="relative h-4 w-4 sm:h-6 sm:w-6" />
+                      ) : isAudioEnabled ? (
+                        <Mic className="relative h-4 w-4 sm:h-6 sm:w-6" />
+                      ) : (
+                        <MicOff className="relative h-4 w-4 sm:h-6 sm:w-6" />
+                      )}
+                    </Button>
+                    
+                    {/* Video Toggle */}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={toggleVideo}
+                      disabled={!mediaAccessStatus.hasVideo}
+                      className={`group relative w-10 h-10 sm:w-14 sm:h-14 rounded-full transition-all duration-300 hover:scale-110 ${
+                        !mediaAccessStatus.hasVideo
+                          ? 'bg-gray-500/20 text-gray-400 cursor-not-allowed'
+                          : isVideoEnabled 
+                            ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 shadow-lg shadow-blue-500/20' 
+                            : 'bg-red-500/20 hover:bg-red-500/30 text-red-400 shadow-lg shadow-red-500/20'
+                      }`}
+                      data-testid="button-toggle-video"
+                    >
+                      <div className="absolute inset-0 rounded-full bg-gradient-to-br from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                      {!mediaAccessStatus.hasVideo ? (
+                        <VideoOff className="relative h-4 w-4 sm:h-6 sm:w-6" />
+                      ) : isVideoEnabled ? (
+                        <Video className="relative h-4 w-4 sm:h-6 sm:w-6" />
+                      ) : (
+                        <VideoOff className="relative h-4 w-4 sm:h-6 sm:w-6" />
+                      )}
+                    </Button>
                     
                     {/* Gender Selector */}
                     <QuickGenderSelector
