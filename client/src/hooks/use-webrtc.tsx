@@ -393,10 +393,6 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
       { urls: 'stun:stun.gmx.net' },
       { urls: 'stun:stun.callwithus.com' },
       { urls: 'stun:stun.counterpath.net' },
-      { urls: 'stun:stun.1und1.de' },
-      { urls: 'stun:stun.gmx.net' },
-      { urls: 'stun:stun.callwithus.com' },
-      { urls: 'stun:stun.counterpath.net' },
       { urls: 'stun:stun.internetcalls.com' }
     ];
 
@@ -412,7 +408,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
       // Note: These properties may not be available in all browsers
     });
 
-    // Set the peer connection immediately
+    // Set the peer connection immediately and synchronize state
     peerConnection.current = pc;
     setPeerConnectionState(pc);
     
@@ -1059,10 +1055,10 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
       
       // Wait for initialization with longer timeout
       let attempts = 0;
-      const maxAttempts = 30;
+      const maxAttempts = 50; // 5 seconds total
       
       while (!peerConnection.current && attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await new Promise(resolve => setTimeout(resolve, 100));
         attempts++;
       }
     }
@@ -1095,9 +1091,13 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
       }
       
       // Check if peer connection is in the right state
-      if (peerConnection.current.signalingState !== 'stable') {
-        await new Promise(resolve => setTimeout(resolve, 1000)); // Increased wait time
+      if (peerConnection.current.signalingState === 'closed') {
+        console.log('⚠️ Peer connection is closed, cannot create offer');
+        return null;
       }
+      
+      // Wait a moment for the connection to be ready
+      await new Promise(resolve => setTimeout(resolve, 100));
       
       // Double-check peer connection is still valid
       if (!peerConnection.current) {
@@ -1138,7 +1138,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
       setLastError(webRTCError);
       return null;
     }
-  }, [createWebRTCError, retryOperation]);
+  }, [createWebRTCError, retryOperation, initializePeerConnection]);
 
   const createAnswer = useCallback(async (offer: RTCSessionDescriptionInit) => {
     if (!peerConnection.current) {
@@ -1426,16 +1426,10 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
       setIsReconnecting(false);
       setNegotiationNeeded(false);
       
-      // Close peer connection safely using connection pool
+      // Close peer connection safely
       if (peerConnection.current) {
         try {
-          if (preserveLocalStream) {
-            // Just deactivate the connection, don't close it
-            connectionPool.deactivateConnection(peerConnection.current.toString());
-          } else {
-            // Close the connection completely
-            connectionPool.closeConnection(peerConnection.current.toString());
-          }
+          peerConnection.current.close();
         } catch (pcError) {
           logger.webrtcWarn('end_call', 'Error closing peer connection', pcError);
         } finally {

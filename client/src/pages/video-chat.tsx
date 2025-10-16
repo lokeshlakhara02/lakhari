@@ -597,6 +597,19 @@ export default function VideoChat() {
       try {
         console.log('🎥 Initializing camera and WebRTC...');
         await startLocalStream(true, true);
+        
+        // Wait for peer connection to be properly initialized
+        let attempts = 0;
+        const maxAttempts = 50; // 5 seconds total
+        while (!peerConnection && attempts < maxAttempts) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+          attempts++;
+        }
+        
+        if (!peerConnection) {
+          throw new Error('Peer connection not initialized after timeout');
+        }
+        
         console.log('✅ Camera and WebRTC initialized successfully');
       } catch (error) {
         console.error('❌ Failed to initialize camera/WebRTC:', error);
@@ -646,7 +659,7 @@ export default function VideoChat() {
         sendMessage(findMatchMessage);
       }, 100);
     }
-  }, [isConnected, userId, startLocalStream, addError, sendMessage, session, userGender, localStream]);
+  }, [isConnected, userId, startLocalStream, addError, sendMessage, session, userGender, localStream, peerConnection]);
 
   // Stable message handlers using useCallback
   const handleWaitingForMatch = useCallback(() => {
@@ -687,13 +700,26 @@ export default function VideoChat() {
       );
       setSharedInterests(shared);
 
-      // Ensure WebRTC peer connection is ready
-      if (!peerConnection) {
+      // Ensure WebRTC peer connection is ready with proper initialization
+      if (!peerConnection || !localStream) {
         console.log('🔧 Peer connection not ready, initializing...');
         try {
-          await startLocalStream(true, true);
-          // Wait for peer connection to be created
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          // Ensure local stream is started first
+          if (!localStream) {
+            await startLocalStream(true, true);
+          }
+          
+          // Wait for peer connection to be properly initialized
+          let attempts = 0;
+          const maxAttempts = 50; // 5 seconds total
+          while (!peerConnection && attempts < maxAttempts) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            attempts++;
+          }
+          
+          if (!peerConnection) {
+            throw new Error('Peer connection not initialized after timeout');
+          }
         } catch (error) {
           console.error('❌ Failed to initialize WebRTC:', error);
           addError({
@@ -716,12 +742,14 @@ export default function VideoChat() {
         return;
       }
 
-      // Peer connection should be ready at this point
-
-      // Ensure the peer connection is in the right state
-      if (peerConnection.signalingState !== 'stable') {
-        await new Promise(resolve => setTimeout(resolve, 1000));
+      // Ensure the peer connection is ready before creating offer
+      if (peerConnection.signalingState === 'closed') {
+        console.log('⚠️ Peer connection is closed, cannot create offer');
+        return;
       }
+      
+      // Wait a moment for the connection to be ready
+      await new Promise(resolve => setTimeout(resolve, 100));
 
       // Create WebRTC offer
       if (createOffer && sendMessage) {
@@ -765,7 +793,7 @@ export default function VideoChat() {
         recoverable: true
       });
     }
-  }, [peerConnection, createOffer, sendMessage, addError]);
+  }, [peerConnection, localStream, createOffer, sendMessage, addError, startLocalStream, session]);
 
   const handleWebRTCOffer = useCallback(async (data: any) => {
     // Ensure peer connection is ready before handling offer
