@@ -12,6 +12,7 @@ import {
 import { QuickGenderSelector } from '@/components/quick-gender-selector';
 import EnhancedMessageInput from '@/components/enhanced-message-input';
 import EnhancedMessage from '@/components/enhanced-message';
+import StableCamera from '@/components/stable-camera';
 import type { ChatSession, Message, Attachment } from '@/types/chat';
 
 // Enhanced error types for video chat
@@ -100,9 +101,7 @@ export default function VideoChat() {
   const hideTimeoutRef = useRef<NodeJS.Timeout>();
   const mouseMoveTimeoutRef = useRef<NodeJS.Timeout>();
   
-  const localVideoRef = useRef<HTMLVideoElement>(null);
-  const localVideoDesktopRef = useRef<HTMLVideoElement>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  // Video refs are now handled by StableCamera component
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
   // Enhanced error tracking and recovery refs
@@ -110,7 +109,7 @@ export default function VideoChat() {
   const diagnosticsIntervalRef = useRef<NodeJS.Timeout>();
   const lastDiagnosticsUpdate = useRef<Date>(new Date());
   const connectionStabilityTimeoutRef = useRef<NodeJS.Timeout>();
-  const remoteVideoPlayTimeoutRef = useRef<NodeJS.Timeout>();
+  // Video play timeouts are now handled by StableCamera component
   const mediaRecoveryAttempts = useRef(0);
   const maxMediaRecoveryAttempts = 3;
   
@@ -191,69 +190,8 @@ export default function VideoChat() {
     requestPermissions,
     peerConnection
   } = useWebRTC(useCallback((stream: MediaStream) => {
-    // Enhanced remote stream callback with error handling
-    
-    try {
-      if (remoteVideoRef.current && stream) {
-        
-        // Clear any existing timeout to prevent play interruption
-        if (remoteVideoPlayTimeoutRef.current) {
-          clearTimeout(remoteVideoPlayTimeoutRef.current);
-        }
-        
-        // Set video properties for better playback
-        const videoElement = remoteVideoRef.current;
-        videoElement.muted = false; // DO NOT mute - we need to hear the remote user
-        videoElement.playsInline = true;
-        videoElement.controls = false;
-        videoElement.autoplay = true;
-        videoElement.volume = 1.0; // Ensure volume is at maximum
-        
-        // Set the stream immediately
-        videoElement.srcObject = stream;
-        
-        // Use a small delay to ensure the video element is ready
-        remoteVideoPlayTimeoutRef.current = setTimeout(() => {
-          if (videoElement && videoElement.srcObject === stream) {
-            
-            // Multiple play attempts with retry logic
-            const attemptPlay = (attempts = 0) => {
-              if (attempts >= 3) {
-                console.error('❌ Failed to play remote video after 3 attempts');
-                return;
-              }
-              
-              const playPromise = videoElement.play();
-              
-              if (playPromise !== undefined) {
-                playPromise.then(() => {
-                }).catch(error => {
-                  console.warn(`⚠️ Play attempt ${attempts + 1} failed:`, error);
-                  if (error.name !== 'AbortError') {
-                    // Retry after a short delay
-                    setTimeout(() => attemptPlay(attempts + 1), 300);
-                  }
-                });
-              }
-            };
-            
-            attemptPlay();
-          }
-        }, 200);
-      } else {
-        console.warn('⚠️ Remote video element or stream not available:', {
-          videoElement: !!remoteVideoRef.current,
-          stream: !!stream
-        });
-      }
-    } catch (error) {
-      console.error('❌ Error in remote stream callback:', error);
-      addError({
-        type: 'webrtc',
-        message: `Remote stream callback error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        recoverable: true
-      });
-    }
+    // Remote stream callback - now handled by StableCamera component
+    logger.videoChatInfo('webrtc', 'Remote stream received');
   }, [addError]), {
     enableAdaptiveBitrate: true,
     enableNetworkAdaptation: true,
@@ -775,17 +713,26 @@ export default function VideoChat() {
       return;
     }
 
+    // Prevent multiple initializations
+    if (localStream) {
+      return;
+    }
+
     // Initialize WebRTC and camera immediately
     const initializeWebRTC = async () => {
       try {
-        console.log('🎥 Initializing camera and WebRTC for video chat...');
         await startLocalStream(true, true);
-        console.log('✅ Camera and WebRTC initialized successfully');
         
-        // Wait a bit for peer connection to be ready
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Wait for peer connection to be ready with retries
+        let retryCount = 0;
+        const maxRetries = 10;
         
-        // Verify peer connection is ready
+        while (!peerConnection && retryCount < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, 200));
+          retryCount++;
+          console.log(`⏳ Waiting for peer connection... (attempt ${retryCount}/${maxRetries})`);
+        }
+        
         if (!peerConnection) {
           console.error('❌ Peer connection not ready after initialization');
           addError({
@@ -793,8 +740,6 @@ export default function VideoChat() {
             message: 'Peer connection not ready after initialization',
             recoverable: true
           });
-        } else {
-          console.log('✅ Peer connection is ready');
         }
       } catch (error) {
         console.error('❌ Failed to initialize camera/WebRTC:', error);
@@ -840,7 +785,7 @@ export default function VideoChat() {
         sendMessage(findMatchMessage);
       }, 100);
     }
-  }, [isConnected, userId, startLocalStream, addError, sendMessage, session, userGender]); // Include all dependencies
+  }, [isConnected, userId, startLocalStream, addError, sendMessage, session, userGender, localStream]); // Include all dependencies
 
   // Stable message handlers using useCallback
   const handleWaitingForMatch = useCallback(() => {
@@ -1530,7 +1475,6 @@ export default function VideoChat() {
   };
 
   const handleNextStranger = useCallback(async () => {
-    console.log('🔄 Moving to next stranger - preserving camera...');
     
     // End current call but preserve local stream to avoid camera reload
     if (connectionStatus === 'connected') {
@@ -1555,10 +1499,8 @@ export default function VideoChat() {
     
     // CRITICAL: Ensure camera and WebRTC are still active
     if (!localStream) {
-      console.log('🎥 Camera not active, reinitializing...');
       try {
         await startLocalStream(true, true);
-        console.log('✅ Camera reinitialized successfully');
       } catch (error) {
         console.error('❌ Failed to reinitialize camera:', error);
         addError({
@@ -1684,20 +1626,16 @@ export default function VideoChat() {
         <div className="h-1/2 lg:h-auto lg:flex-1 relative lg:order-1" data-video-container>
           <div className="relative bg-gradient-to-br from-slate-200 to-slate-300 dark:from-slate-900 dark:to-slate-800 w-full h-full">
                 {/* Remote Video (Main) */}
-                <video
-                  ref={remoteVideoRef}
-                  autoPlay
-                  playsInline
+                <StableCamera
+                  stream={remoteStream}
+                  isLocal={false}
+                  isVideoEnabled={true}
+                  isAudioEnabled={true}
+                  className="w-full h-full"
                   muted={false}
+                  playsInline={true}
+                  autoPlay={true}
                   controls={false}
-                  className="w-full h-full object-cover"
-                  data-testid="remote-video"
-                  style={{ 
-                    backgroundColor: '#0f172a',
-                    transform: 'scaleX(-1)', // Mirror the remote video
-                    imageRendering: 'auto',
-                    willChange: 'transform'
-                  }}
                 />
                 
                 {/* Video Overlay Effects */}
@@ -1761,19 +1699,16 @@ export default function VideoChat() {
                 {/* Local Video (Picture-in-Picture) - Mobile Only */}
                 {localStream && (
                   <div className="lg:hidden absolute bottom-3 right-3 w-24 h-32 sm:w-28 sm:h-36 rounded-xl overflow-hidden border-2 border-white/30 shadow-2xl backdrop-blur-sm bg-gradient-to-br from-black/40 to-black/20 group hover:scale-105 transition-transform duration-300">
-                    <video
-                      ref={localVideoRef}
-                      autoPlay
-                      playsInline
+                    <StableCamera
+                      stream={localStream}
+                      isLocal={true}
+                      isVideoEnabled={isVideoEnabled}
+                      isAudioEnabled={isAudioEnabled}
+                      className="w-full h-full"
                       muted={true}
+                      playsInline={true}
+                      autoPlay={true}
                       controls={false}
-                      className="w-full h-full object-cover"
-                      style={{ 
-                        backgroundColor: '#000',
-                        transform: 'scaleX(-1)',
-                        imageRendering: 'auto',
-                        willChange: 'transform'
-                      }}
                     />
                     {/* Local video indicator - Glassmorphism */}
                     <div className="absolute top-2 left-2 px-2 py-1 bg-gradient-to-r from-primary/80 to-secondary/80 backdrop-blur-md rounded-lg text-xs text-white font-semibold border border-white/20 shadow-lg">
@@ -1911,20 +1846,16 @@ export default function VideoChat() {
           <div className="hidden lg:block lg:h-1/2 relative bg-gradient-to-br from-slate-200 to-slate-300 dark:from-slate-900 dark:to-slate-800 border-b border-border/50">
             {localStream ? (
               <>
-                <video
-                  ref={localVideoDesktopRef}
-                  autoPlay
-                  playsInline
+                <StableCamera
+                  stream={localStream}
+                  isLocal={true}
+                  isVideoEnabled={isVideoEnabled}
+                  isAudioEnabled={isAudioEnabled}
+                  className="w-full h-full"
                   muted={true}
+                  playsInline={true}
+                  autoPlay={true}
                   controls={false}
-                  className="w-full h-full object-cover"
-                  data-testid="local-video-desktop"
-                  style={{ 
-                    backgroundColor: '#000',
-                    transform: 'scaleX(-1)',
-                    imageRendering: 'auto',
-                    willChange: 'transform'
-                  }}
                 />
                 {/* Local video indicator - Glassmorphism */}
                 <div className="absolute top-4 left-4 px-4 py-2 bg-gradient-to-r from-primary/90 to-secondary/90 backdrop-blur-md rounded-lg text-sm text-white font-semibold border border-white/20 shadow-lg">

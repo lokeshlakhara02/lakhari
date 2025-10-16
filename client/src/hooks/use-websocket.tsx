@@ -226,7 +226,6 @@ export function useWebSocket() {
       }, connectionConfig.current.connectionTimeout);
       
       // Connect with hybrid approach
-      console.log('Attempting hybrid connection...');
       await hybridConnection.current.connect();
       
       // Clear connection timeout
@@ -234,7 +233,6 @@ export function useWebSocket() {
         clearTimeout(connectionTimeoutRef.current);
       }
       
-      console.log('Hybrid connection established, type:', hybridConnection.current.getConnectionType());
       setIsConnected(true);
       setConnectionType(hybridConnection.current.getConnectionType());
       setReconnectAttempts(0);
@@ -262,7 +260,6 @@ export function useWebSocket() {
           interests: Array.isArray(interests) ? interests : [],
           timestamp: Date.now()
         };
-        console.log('Sending join message:', joinMessage);
         hybridConnection.current.send(joinMessage);
         setConnectionMetrics(prev => ({ ...prev, messagesSent: prev.messagesSent + 1 }));
       } catch (error) {
@@ -306,7 +303,6 @@ export function useWebSocket() {
   }, [reconnectAttempts, isConnected, createWebSocketError, updateConnectionMetrics]);
 
   const disconnect = useCallback(() => {
-    console.log('Disconnecting WebSocket...');
     shouldReconnect.current = false;
     
     // Clear timeouts and intervals
@@ -346,7 +342,6 @@ export function useWebSocket() {
     // Clear message queue
     messageQueue.current = [];
     
-    console.log('WebSocket disconnected');
   }, []);
 
   const sendMessage = useCallback((message: WebSocketMessage) => {
@@ -462,13 +457,11 @@ export function useWebSocket() {
   useEffect(() => {
     // Only connect if not already connected and not already connecting
     if (!isConnected && !connectionAttempted.current && !isConnectingRef.current) {
-      console.log('Auto-connecting WebSocket...');
       connect();
     }
     
     return () => {
       // Clean up everything on unmount
-      console.log('useWebSocket cleanup on unmount');
       shouldReconnect.current = false;
       
       // Clear all timeouts and intervals
@@ -505,7 +498,6 @@ export function useWebSocket() {
         connectionConfig.current.maxReconnectDelay
       );
       
-      console.log(`Scheduling reconnection attempt ${reconnectAttempts + 1} in ${delay}ms`);
       
       reconnectTimeoutRef.current = setTimeout(() => {
         if (shouldReconnect.current) {
@@ -527,7 +519,6 @@ export function useWebSocket() {
       interests: Array.isArray(interests) ? interests : []
     };
     
-    console.log('Getting queue status:', message);
     sendMessage(message);
   }, [sendMessage]);
   

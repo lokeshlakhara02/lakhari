@@ -427,12 +427,23 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
     peerConnection.current = pc;
     setPeerConnectionState(pc);
     
+    // Debug: Log peer connection creation
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔗 Peer connection created and set in state');
+    }
+    
     // Set up connection state handlers with reduced logging
     pc.onconnectionstatechange = () => {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('🔄 Connection state changed:', pc.connectionState);
+      }
       setConnectionState(pc.connectionState);
     };
     
     pc.oniceconnectionstatechange = () => {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('🧊 ICE connection state changed:', pc.iceConnectionState);
+      }
       setIceConnectionState(pc.iceConnectionState);
     };
     
@@ -805,6 +816,12 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
   const startLocalStream = useCallback(async (video: boolean = true, audio: boolean = true) => {
     // Prevent multiple simultaneous initialization attempts
     if (isInitializing.current) {
+      return localStream;
+    }
+
+    // If we already have a local stream, don't reinitialize
+    if (localStream && localStream.active) {
+      logger.webrtcInfo('start_local_stream', 'Local stream already active, skipping initialization');
       return localStream;
     }
 
