@@ -10,7 +10,6 @@ import ErrorBoundary from "@/components/error-boundary";
 import Home from "@/pages/home";
 import TextChat from "@/pages/text-chat";
 import VideoChat from "@/pages/video-chat";
-import WebSocketDebug from "@/pages/websocket-debug";
 import NotFound from "@/pages/not-found";
 import { Moon, Sun, Users, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -205,7 +204,6 @@ function Router() {
       <Route path="/" component={Home} />
       <Route path="/text-chat" component={TextChat} />
       <Route path="/video-chat" component={VideoChat} />
-      <Route path="/debug" component={WebSocketDebug} />
       <Route component={NotFound} />
     </Switch>
   );

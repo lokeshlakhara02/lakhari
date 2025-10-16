@@ -86,7 +86,10 @@ export default function EnhancedMessageInput({
 
       setAttachments(prev => [...prev, attachment]);
     } catch (error) {
-      console.error('Error processing file:', error);
+      // Only log in development mode to reduce Railway rate limits
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error processing file:', error);
+      }
     }
   };
 
@@ -159,7 +162,7 @@ export default function EnhancedMessageInput({
               onCompositionEnd={() => setIsComposing(false)}
               placeholder={placeholder}
               disabled={disabled}
-              className="w-full bg-background/80 backdrop-blur-sm border-border/50 focus:ring-2 focus:ring-primary focus:border-primary rounded-2xl text-sm min-h-[40px] max-h-[120px] resize-none px-4 py-2.5 transition-all"
+              className="w-full bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm border-border/50 focus:ring-2 focus:ring-primary focus:border-primary rounded-2xl text-sm min-h-[40px] max-h-[120px] resize-none px-4 py-2.5 transition-all text-gray-900 dark:text-gray-100 placeholder:text-gray-500 dark:placeholder:text-gray-400"
               style={{ height: 'auto' }}
             />
           </div>

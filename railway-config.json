@@ -1,0 +1,70 @@
+{
+  "railway": {
+    "optimization": {
+      "enabled": true,
+      "aggressiveMode": false,
+      "costThreshold": 10,
+      "memoryLimit": 512,
+      "cpuLimit": 80,
+      "networkLimit": 1000,
+      "logLimit": 50
+    },
+    "monitoring": {
+      "enabled": true,
+      "interval": 60000,
+      "alerts": {
+        "memory": 80,
+        "cpu": 70,
+        "network": 80,
+        "logs": 40
+      }
+    },
+    "costOptimization": {
+      "strategies": [
+        {
+          "name": "reduceLogging",
+          "enabled": true,
+          "priority": 1,
+          "costSavings": 0.3
+        },
+        {
+          "name": "optimizeMemory",
+          "enabled": true,
+          "priority": 2,
+          "costSavings": 0.4
+        },
+        {
+          "name": "optimizeNetwork",
+          "enabled": true,
+          "priority": 3,
+          "costSavings": 0.2
+        },
+        {
+          "name": "optimizeDatabase",
+          "enabled": true,
+          "priority": 4,
+          "costSavings": 0.3
+        },
+        {
+          "name": "optimizeWebSockets",
+          "enabled": true,
+          "priority": 5,
+          "costSavings": 0.2
+        }
+      ]
+    },
+    "limits": {
+      "memoryMB": 512,
+      "cpuPercent": 80,
+      "networkRequestsPerMinute": 1000,
+      "databaseQueriesPerMinute": 500,
+      "websocketConnections": 50,
+      "logsPerMinute": 50
+    },
+    "alerts": {
+      "email": false,
+      "webhook": false,
+      "console": true
+    }
+  }
+}

@@ -7,6 +7,9 @@
     "dev": "cross-env NODE_ENV=development tsx server/index.ts",
     "build": "vite build",
     "start": "npx tsx server/index.ts",
+    "railway:start": "node scripts/railway-start.js",
+    "railway:build": "npm run build && npm prune --production",
+    "railway:optimize": "node scripts/railway-optimize.js",
     "check": "tsc",
     "db:push": "drizzle-kit push",
     "test:deployment": "node test-deployment.js",
@@ -81,7 +84,10 @@
     "ws": "^8.18.0",
     "zod": "^3.24.2",
     "zod-validation-error": "^3.4.0",
-    "tsx": "^4.20.5"
+    "tsx": "^4.20.5",
+    "compression": "^1.7.4",
+    "helmet": "^7.1.0",
+    "express-rate-limit": "^7.1.5"
   },
   "devDependencies": {
     "@replit/vite-plugin-cartographer": "^0.3.1",

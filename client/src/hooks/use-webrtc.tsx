@@ -1,4 +1,6 @@
 import { useCallback, useRef, useState, useEffect } from 'react';
+import { logger } from '@/lib/logger';
+import { connectionPool } from '@/lib/connection-pool';
 
 // Enhanced error types for better debugging
 interface WebRTCError extends Error {
@@ -198,12 +200,14 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
     }
   }, []);
 
-  // Enhanced error handling utility
+  // Enhanced error handling utility with optimized logging
   const createWebRTCError = useCallback((message: string, operation: string, code?: string, recoverable = true): WebRTCError => {
     const error = new Error(message) as WebRTCError;
     error.operation = operation;
     error.code = code;
     error.recoverable = recoverable;
+    // Use optimized logger
+    logger.webrtcError(operation, message, undefined, code);
     return error;
   }, []);
 
@@ -271,7 +275,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
       }
 
     } catch (error) {
-      console.warn('Failed to update connection health:', error);
+      logger.webrtcWarn('update_connection_health', 'Failed to update connection health', error);
     }
   }, []);
 
@@ -320,10 +324,9 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
 
         // Apply new constraints
         await videoTracks[0].applyConstraints(newConstraints);
-        console.log('🎯 Applied adaptive constraints:', newConstraints);
       }
     } catch (error) {
-      console.error('Failed to adapt to network conditions:', error);
+      logger.webrtcError('adapt_network_conditions', 'Failed to adapt to network conditions', error);
     } finally {
       setIsAdapting(false);
     }
@@ -343,7 +346,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
         return await operation();
       } catch (error) {
         lastError = error as Error;
-        console.warn(`${operationName} attempt ${attempt} failed:`, error);
+        logger.webrtcWarn('retry_operation', `${operationName} attempt ${attempt} failed`, error);
         
         if (attempt === config.maxAttempts) {
           throw createWebRTCError(
@@ -367,12 +370,12 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
   }, [createWebRTCError]);
 
   const initializePeerConnection = useCallback(() => {
-    console.log('🔄 Initializing peer connection...');
+    // Use connection pool to optimize resource usage
+    const connectionId = `webrtc-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     
     // Close existing connection if any
     if (peerConnection.current) {
-      console.log('🔄 Closing existing peer connection...');
-      peerConnection.current.close();
+      connectionPool.closeConnection(peerConnection.current.toString());
     }
 
     // Enhanced ICE servers with fallbacks
@@ -401,28 +404,45 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
       { urls: 'stun:stun.internetcalls.com' }
     ];
 
-    const pc = new RTCPeerConnection({
-      iceServers,
-      iceCandidatePoolSize: 20, // Increased for better connectivity
-      iceTransportPolicy: 'all',
-      bundlePolicy: 'max-bundle',
-      rtcpMuxPolicy: 'require',
-      // sdpSemantics: 'unified-plan', // Not available in all browsers
-      // Enhanced configuration for better reliability
-      // Note: These properties may not be available in all browsers
-    });
+    // Try to reuse existing connection from pool
+    let pc = connectionPool.getConnection(connectionId);
+    
+    if (!pc) {
+      pc = new RTCPeerConnection({
+        iceServers,
+        iceCandidatePoolSize: 10, // Reduced for better performance
+        iceTransportPolicy: 'all',
+        bundlePolicy: 'max-bundle',
+        rtcpMuxPolicy: 'require',
+        // sdpSemantics: 'unified-plan', // Not available in all browsers
+        // Enhanced configuration for better reliability
+        // Note: These properties may not be available in all browsers
+      });
+      
+      // Add to connection pool
+      connectionPool.createConnection(connectionId, iceServers);
+    }
 
     // Set the peer connection immediately
     peerConnection.current = pc;
     setPeerConnectionState(pc);
-    console.log('✅ Peer connection initialized and set');
     
-    // Ensure the peer connection is properly set
+    // Set up connection state handlers with reduced logging
+    pc.onconnectionstatechange = () => {
+      setConnectionState(pc.connectionState);
+    };
+    
+    pc.oniceconnectionstatechange = () => {
+      setIceConnectionState(pc.iceConnectionState);
+    };
+    
+    // Ensure the peer connection is properly set (reduced logging)
     setTimeout(() => {
-      if (peerConnection.current === pc) {
-        console.log('✅ Peer connection confirmed ready');
-      } else {
-        console.warn('⚠️ Peer connection not properly set');
+      if (peerConnection.current !== pc) {
+        // Only log in development mode to reduce Railway rate limits
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('Peer connection not properly set');
+        }
       }
     }, 100);
 
@@ -430,7 +450,6 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
     
     // Enhanced negotiation handling
     pc.onnegotiationneeded = async () => {
-      console.log('Negotiation needed, signaling state:', pc.signalingState);
       setNegotiationNeeded(true);
       
       try {
@@ -439,15 +458,17 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
           clearTimeout(negotiationTimeout.current);
         }
         
-        // Set timeout for negotiation
+        // Set timeout for negotiation (reduced logging)
         negotiationTimeout.current = setTimeout(() => {
-          console.warn('Negotiation timeout - connection may be unstable');
+          // Only log in development mode to reduce Railway rate limits
+          if (process.env.NODE_ENV === 'development') {
+            console.warn('Negotiation timeout - connection may be unstable');
+          }
           setNegotiationNeeded(false);
         }, 15000); // Increased to 15 seconds
         
         // Only proceed if we're in the right state and have a local stream
         if (pc.signalingState === 'stable' && localStream) {
-          console.log('Creating offer for negotiation...');
           // The parent component will handle creating the offer
         }
       } catch (error) {
@@ -458,7 +479,6 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
     
     // Enhanced ICE gathering state handling
     pc.onicegatheringstatechange = () => {
-      console.log('ICE gathering state:', pc.iceGatheringState);
       
       if (pc.iceGatheringState === 'gathering') {
         // Set timeout for ICE gathering
@@ -467,11 +487,17 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
         }
         
         iceGatheringTimeout.current = setTimeout(() => {
-          console.warn('ICE gathering timeout - forcing completion');
+          // Only log in development mode to reduce Railway rate limits
+          if (process.env.NODE_ENV === 'development') {
+            console.warn('ICE gathering timeout - forcing completion');
+          }
           if (pc.iceGatheringState === 'gathering') {
             // Force completion by setting local description again
             pc.setLocalDescription(pc.localDescription || undefined).catch(error => {
-              console.error('Error forcing ICE gathering completion:', error);
+              // Only log critical errors
+              if (process.env.NODE_ENV === 'development') {
+                console.error('Error forcing ICE gathering completion:', error);
+              }
             });
           }
         }, 15000); // 15 second timeout
@@ -483,20 +509,10 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
     };
 
     pc.ontrack = (event) => {
-      console.log('🎥 Track received:', {
-        kind: event.track.kind,
-        streams: event.streams.length,
-        trackId: event.track.id,
-        trackLabel: event.track.label,
-        trackEnabled: event.track.enabled,
-        trackReadyState: event.track.readyState
-      });
-      
       const [stream] = event.streams;
       if (stream && stream.id) {
         // Prevent duplicate stream updates
         if (lastStreamId.current === stream.id) {
-          console.log('🔄 Duplicate stream detected, ignoring');
           return;
         }
         
@@ -506,16 +522,11 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
         const hasVideo = videoTracks.length > 0;
         const hasAudio = audioTracks.length > 0;
         
-        console.log('📊 Stream validation:', {
-          streamId: stream.id,
-          videoTracks: videoTracks.length,
-          audioTracks: audioTracks.length,
-          hasVideo,
-          hasAudio
-        });
-        
         if (!hasVideo && !hasAudio) {
-          console.warn('⚠️ Received empty stream, ignoring');
+          // Only log in development mode to reduce Railway rate limits
+          if (process.env.NODE_ENV === 'development') {
+            console.warn('Received empty stream, ignoring');
+          }
           return;
         }
         
@@ -525,50 +536,48 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
         }
         
         // Set remote stream immediately for better responsiveness
-        console.log('✅ Setting remote stream immediately');
         lastStreamId.current = stream.id;
         setRemoteStream(stream);
+        
+        // Force update connection states
+        setConnectionState('connected');
+        setIceConnectionState('connected');
         
         // Enhanced callback with error handling
         if (onRemoteStream) {
           try {
-            console.log('🔄 Calling onRemoteStream callback');
             onRemoteStream(stream);
           } catch (error) {
-            console.error('❌ Error in onRemoteStream callback:', error);
+            // Only log critical errors to reduce Railway rate limits
+            if (process.env.NODE_ENV === 'development') {
+              console.error('Error in onRemoteStream callback:', error);
+            }
           }
         }
         
-        console.log('🎉 Remote stream set successfully:', {
-          streamId: stream.id,
-          videoTracks: videoTracks.length,
-          audioTracks: audioTracks.length,
-          videoTrackEnabled: videoTracks.length > 0 ? videoTracks[0].enabled : false,
-          audioTrackEnabled: audioTracks.length > 0 ? audioTracks[0].enabled : false
-        });
       } else {
-        console.warn('⚠️ Invalid stream received:', stream);
+        // Only log in development mode to reduce Railway rate limits
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('Invalid stream received:', stream);
+        }
       }
     };
 
     pc.oniceconnectionstatechange = () => {
-      console.log('🔗 ICE connection state changed:', {
-        from: iceConnectionState,
-        to: pc.iceConnectionState,
-        timestamp: new Date().toISOString()
-      });
       
       // Only update state if it's actually changing to prevent flickering
       setIceConnectionState(prevState => {
         if (prevState !== pc.iceConnectionState) {
-          console.log('✅ ICE connection state updated:', pc.iceConnectionState);
           return pc.iceConnectionState;
         }
         return prevState;
       });
       
       if (pc.iceConnectionState === 'failed') {
-        console.warn('❌ ICE connection failed, attempting restart');
+        // Only log in development mode to reduce Railway rate limits
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('ICE connection failed, attempting restart');
+        }
         setConnectionQuality('poor');
         setLastError(createWebRTCError('ICE connection failed', 'ice_connection', 'ICE_FAILED'));
         
@@ -586,7 +595,10 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
           },
           'ICE restart'
         ).catch(error => {
-          console.error('ICE restart failed:', error);
+          // Only log critical errors to reduce Railway rate limits
+          if (process.env.NODE_ENV === 'development') {
+            console.error('ICE restart failed:', error);
+          }
           setIsReconnecting(true);
           // Attempt full reconnection
           setTimeout(() => {
@@ -595,37 +607,35 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
           }, 2000);
         });
       } else if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
-        console.log('🎉 ICE connection established successfully');
         setConnectionQuality('good');
         setLastError(null);
         setRetryCount(0);
       } else if (pc.iceConnectionState === 'disconnected') {
-        console.warn('⚠️ ICE connection disconnected');
+        // Only log in development mode to reduce Railway rate limits
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('ICE connection disconnected');
+        }
         setConnectionQuality('poor');
       } else if (pc.iceConnectionState === 'checking') {
-        console.log('🔍 ICE connection checking...');
         setConnectionQuality('unknown');
       }
     };
 
     pc.onconnectionstatechange = () => {
-      console.log('🔗 Peer connection state changed:', {
-        from: connectionState,
-        to: pc.connectionState,
-        timestamp: new Date().toISOString()
-      });
       
       // Only update state if it's actually changing to prevent flickering
       setConnectionState(prevState => {
         if (prevState !== pc.connectionState) {
-          console.log('✅ Peer connection state updated:', pc.connectionState);
           return pc.connectionState;
         }
         return prevState;
       });
       
       if (pc.connectionState === 'failed') {
-        console.error('❌ Peer connection failed');
+        // Only log critical errors to reduce Railway rate limits
+        if (process.env.NODE_ENV === 'development') {
+          console.error('Peer connection failed');
+        }
         setConnectionQuality('poor');
         setRemoteStream(null);
         connectionFailureCount.current++;
@@ -635,23 +645,19 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
         
         // Advanced recovery logic
         if (automaticRecoveryEnabled.current && recoveryAttempts < maxRecoveryAttempts) {
-          console.log(`🔄 Attempting automatic recovery (${recoveryAttempts + 1}/${maxRecoveryAttempts})...`);
           setRecoveryAttempts(prev => prev + 1);
           setIsReconnecting(true);
           
           // Exponential backoff for recovery attempts
           const delay = Math.min(1000 * Math.pow(2, recoveryAttempts), 30000);
           setTimeout(() => {
-            console.log('🔄 Executing automatic recovery...');
             initializePeerConnection();
             setIsReconnecting(false);
           }, delay);
         } else {
-          console.log('🔄 Peer connection failed, waiting for parent component to handle recovery...');
           setIsReconnecting(true);
         }
       } else if (pc.connectionState === 'connected') {
-        console.log('🎉 Peer connection established successfully');
         setConnectionQuality('good');
         setLastError(null);
         setRetryCount(0);
@@ -666,10 +672,12 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
           clearTimeout(negotiationTimeout.current);
         }
       } else if (pc.connectionState === 'connecting') {
-        console.log('🔍 Peer connection connecting...');
         setConnectionQuality('unknown');
       } else if (pc.connectionState === 'disconnected') {
-        console.warn('⚠️ Peer connection disconnected');
+        // Only log in development mode to reduce Railway rate limits
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('Peer connection disconnected');
+        }
         setConnectionQuality('poor');
       }
     };
@@ -680,11 +688,12 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
     
     pc.setLocalDescription = async (description) => {
       try {
-        console.log('Setting local description:', description?.type);
         await originalSetLocalDescription(description);
-        console.log('Local description set successfully');
       } catch (error) {
-        console.error('Failed to set local description:', error);
+        // Only log critical errors to reduce Railway rate limits
+        if (process.env.NODE_ENV === 'development') {
+          console.error('Failed to set local description:', error);
+        }
         setLastError(createWebRTCError('Failed to set local description', 'set_local_description', 'SET_LOCAL_DESC_FAILED'));
         throw error;
       }
@@ -692,22 +701,23 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
     
     pc.setRemoteDescription = async (description) => {
       try {
-        console.log('Setting remote description:', description?.type);
         await originalSetRemoteDescription(description);
-        console.log('Remote description set successfully');
       } catch (error) {
-        console.error('Failed to set remote description:', error);
+        // Only log critical errors to reduce Railway rate limits
+        if (process.env.NODE_ENV === 'development') {
+          console.error('Failed to set remote description:', error);
+        }
         setLastError(createWebRTCError('Failed to set remote description', 'set_remote_description', 'SET_REMOTE_DESC_FAILED'));
         throw error;
       }
     };
 
-    // Advanced connection health monitoring
+    // Advanced connection health monitoring (optimized frequency)
     healthCheckInterval.current = setInterval(async () => {
       if (pc.connectionState === 'connected') {
         await updateConnectionHealth();
       }
-    }, 3000); // Check every 3 seconds for more responsive adaptation
+    }, 10000); // Check every 10 seconds to reduce Railway rate limits
 
     // Enhanced connection quality monitoring with detailed stats
     connectionQualityInterval.current = setInterval(async () => {
@@ -764,22 +774,20 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
           const overallQuality = (audioQuality === 'poor' || videoQuality === 'poor' || rtt > 500) ? 'poor' : 'good';
           setConnectionQuality(overallQuality);
           
-          // Log quality issues
+          // Log quality issues (optimized)
           if (overallQuality === 'poor') {
-            console.warn('Connection quality degraded:', { audioQuality, videoQuality, rtt });
+            logger.webrtcWarn('connection_quality', 'Connection quality degraded', { audioQuality, videoQuality, rtt });
           }
         } catch (error) {
-          console.error('Error getting connection stats:', error);
+          logger.webrtcWarn('connection_stats', 'Error getting connection stats', error);
         }
       }
-    }, 5000); // Check every 5 seconds
+    }, 15000); // Check every 15 seconds to reduce Railway rate limits
     
     // If we have a local stream, add it to the new peer connection
     if (localStream) {
-      console.log('🔄 Adding local stream to reinitialized peer connection');
       localStream.getTracks().forEach(track => {
         pc.addTrack(track, localStream);
-        console.log('✅ Added track to peer connection:', track.kind);
       });
     }
     
@@ -797,7 +805,6 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
   const startLocalStream = useCallback(async (video: boolean = true, audio: boolean = true) => {
     // Prevent multiple simultaneous initialization attempts
     if (isInitializing.current) {
-      console.log('Stream initialization already in progress');
       return localStream;
     }
 
@@ -806,14 +813,11 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
       setPermissionError(null);
       setLastError(null);
       
-      console.log('Starting local stream with:', { video, audio });
 
       // Stop existing stream first to prevent conflicts
       if (localStream) {
-        console.log('Stopping existing local stream');
         localStream.getTracks().forEach(track => {
           track.stop();
-          console.log('Stopped track:', track.kind, track.label);
         });
         setLocalStream(null); // Clear the state immediately
       }
@@ -849,11 +853,6 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
       const videoDevices = devices.filter(device => device.kind === 'videoinput');
       const audioDevices = devices.filter(device => device.kind === 'audioinput');
       
-      console.log('Available devices:', {
-        video: videoDevices.length,
-        audio: audioDevices.length,
-        total: devices.length
-      });
 
       // Use local variables to avoid reassigning parameters
       let requestVideo = video;
@@ -878,7 +877,6 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
 
       // Enhanced permission checking with retry
       if (!hasPermissions(requestVideo, requestAudio)) {
-        console.log('Requesting permissions for:', { requestVideo, requestAudio });
         try {
           await retryOperation(
             () => requestPermissions(requestVideo, requestAudio),
@@ -909,7 +907,6 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
         } : false,
       };
       
-      console.log('Requesting media with constraints:', constraints);
       
       const stream = await retryOperation(
         async () => {
@@ -940,11 +937,6 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
       const videoTracks = stream.getVideoTracks();
       const audioTracks = stream.getAudioTracks();
       
-      console.log('Media stream acquired:', {
-        videoTracks: videoTracks.length,
-        audioTracks: audioTracks.length,
-        streamId: stream.id
-      });
       
       // Validate stream quality
       if (requestVideo && videoTracks.length === 0) {
@@ -961,26 +953,13 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
       
       // Log track details
       videoTracks.forEach(track => {
-        console.log('Video track:', {
-          id: track.id,
-          label: track.label,
-          enabled: track.enabled,
-          readyState: track.readyState
-        });
       });
       
       audioTracks.forEach(track => {
-        console.log('Audio track:', {
-          id: track.id,
-          label: track.label,
-          enabled: track.enabled,
-          readyState: track.readyState
-        });
       });
 
       // Enhanced peer connection setup
       if (!peerConnection.current) {
-        console.log('Initializing new peer connection');
         initializePeerConnection();
         
         // Wait a moment for the peer connection to be created
@@ -992,15 +971,12 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
         }
       }
       
-      console.log('Peer connection ready:', !!peerConnection.current);
 
       // Remove existing tracks before adding new ones
       if (peerConnection.current) {
-        console.log('Removing existing tracks from peer connection');
         const senders = peerConnection.current.getSenders();
         await Promise.all(senders.map(sender => {
           if (sender.track) {
-            console.log('Removing track:', sender.track.kind, sender.track.label);
             return peerConnection.current?.removeTrack(sender);
           }
           return Promise.resolve();
@@ -1008,15 +984,12 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
       }
 
       // Add new tracks to peer connection
-      console.log('Adding tracks to peer connection');
       stream.getTracks().forEach(track => {
         if (peerConnection.current) {
-          console.log('Adding track to peer connection:', track.kind, track.label);
           peerConnection.current.addTrack(track, stream);
         }
       });
 
-      console.log('Local stream started successfully');
       return stream;
     } catch (error) {
       console.error('Failed to start local stream:', error);
@@ -1074,34 +1047,40 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
   }, [localStream]);
 
   const createOffer = useCallback(async () => {
-    // Ensure peer connection is initialized first
+    // Force peer connection initialization if not ready
     if (!peerConnection.current) {
-      console.log('🔄 No peer connection, initializing...');
       initializePeerConnection();
       
-      // Wait for initialization
+      // Wait for initialization with longer timeout
       let attempts = 0;
-      const maxAttempts = 20;
+      const maxAttempts = 30;
       
       while (!peerConnection.current && attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise(resolve => setTimeout(resolve, 200));
         attempts++;
       }
     }
     
+    // Double-check and force initialization if still not ready
     if (!peerConnection.current) {
-      console.error('❌ Cannot create offer: no peer connection after initialization');
-      const webRTCError = createWebRTCError(
-        'Peer connection not ready for offer creation',
-        'create_offer',
-        'NO_PEER_CONNECTION'
-      );
-      setLastError(webRTCError);
-      return null;
+      initializePeerConnection();
+      
+      // Wait a bit more
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      if (!peerConnection.current) {
+        console.error('❌ Cannot create offer: no peer connection after force initialization');
+        const webRTCError = createWebRTCError(
+          'Peer connection not ready for offer creation',
+          'create_offer',
+          'NO_PEER_CONNECTION'
+        );
+        setLastError(webRTCError);
+        return null;
+      }
     }
 
     try {
-      console.log('Creating WebRTC offer...');
       
       // Ensure peer connection is ready
       if (!peerConnection.current) {
@@ -1111,7 +1090,6 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
       
       // Check if peer connection is in the right state
       if (peerConnection.current.signalingState !== 'stable') {
-        console.log('⏳ Waiting for peer connection to be stable...', peerConnection.current.signalingState);
         await new Promise(resolve => setTimeout(resolve, 1000)); // Increased wait time
       }
       
@@ -1135,7 +1113,6 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
         { maxAttempts: 3, baseDelay: 500, maxDelay: 2000, backoffMultiplier: 1.5 }
       );
       
-      console.log('Offer created successfully:', offer.type);
       
       await retryOperation(
         () => peerConnection.current!.setLocalDescription(offer),
@@ -1143,7 +1120,6 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
         { maxAttempts: 3, baseDelay: 500, maxDelay: 2000, backoffMultiplier: 1.5 }
       );
       
-      console.log('Local description set for offer');
       setLastError(null);
       return offer;
     } catch (error) {
@@ -1170,11 +1146,9 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
     }
 
     try {
-      console.log('Creating WebRTC answer for offer:', offer.type);
       
       // Check if peer connection is in the right state
       if (peerConnection.current.signalingState !== 'stable') {
-        console.log('⏳ Waiting for peer connection to be stable before creating answer...', peerConnection.current.signalingState);
         await new Promise(resolve => setTimeout(resolve, 500));
       }
       
@@ -1185,7 +1159,6 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
         { maxAttempts: 3, baseDelay: 500, maxDelay: 2000, backoffMultiplier: 1.5 }
       );
       
-      console.log('Remote description set for offer');
       
       const answerOptions = {
         voiceActivityDetection: true
@@ -1197,7 +1170,6 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
         { maxAttempts: 3, baseDelay: 500, maxDelay: 2000, backoffMultiplier: 1.5 }
       );
       
-      console.log('Answer created successfully:', answer.type);
       
       await retryOperation(
         () => peerConnection.current!.setLocalDescription(answer),
@@ -1205,7 +1177,6 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
         { maxAttempts: 3, baseDelay: 500, maxDelay: 2000, backoffMultiplier: 1.5 }
       );
       
-      console.log('Local description set for answer');
       setLastError(null);
       return answer;
     } catch (error) {
@@ -1232,11 +1203,9 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
     }
 
     try {
-      console.log('Handling WebRTC answer:', answer.type);
       
       // Check signaling state before setting remote description
       const currentState = peerConnection.current.signalingState;
-      console.log('Current signaling state:', currentState);
       
       if (currentState !== 'have-local-offer') {
         console.warn('Invalid signaling state for answer:', currentState);
@@ -1250,7 +1219,6 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
         { maxAttempts: 3, baseDelay: 500, maxDelay: 2000, backoffMultiplier: 1.5 }
       );
       
-      console.log('Remote description set for answer successfully');
       setLastError(null);
     } catch (error) {
       console.error('Failed to handle answer:', error);
@@ -1275,7 +1243,6 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
     }
 
     try {
-      console.log('Adding ICE candidate:', candidate.candidate.substring(0, 50) + '...');
       
       await retryOperation(
         () => peerConnection.current!.addIceCandidate(candidate),
@@ -1283,7 +1250,6 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
         { maxAttempts: 3, baseDelay: 200, maxDelay: 1000, backoffMultiplier: 1.2 }
       );
       
-      console.log('ICE candidate added successfully');
     } catch (error) {
       console.error('Failed to add ICE candidate:', error);
       // ICE candidate errors are usually not critical, so we don't set lastError
@@ -1304,12 +1270,6 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
         candidate,
       };
       
-      console.log('Sending ICE candidate:', {
-        candidate: candidate.candidate?.substring(0, 50) + '...',
-        sessionId,
-        sdpMLineIndex: candidate.sdpMLineIndex,
-        sdpMid: candidate.sdpMid
-      });
       
       sendMessage(message);
     } catch (error) {
@@ -1333,7 +1293,6 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
       const videoTrack = videoTracks[0];
       const newState = !videoTrack.enabled;
       
-      console.log('Toggling video:', newState ? 'enabled' : 'disabled');
       videoTrack.enabled = newState;
       setIsVideoEnabled(newState);
       
@@ -1361,7 +1320,6 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
       const audioTrack = audioTracks[0];
       const newState = !audioTrack.enabled;
       
-      console.log('Toggling audio:', newState ? 'enabled' : 'disabled');
       audioTrack.enabled = newState;
       setIsAudioEnabled(newState);
       
@@ -1373,9 +1331,8 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
     }
   }, [localStream, createWebRTCError]);
 
-  const endCall = useCallback(() => {
-    console.log('🧹 Ending WebRTC call and cleaning up...');
-    
+  // Optimized endCall function that preserves local stream for "next" button
+  const endCall = useCallback((preserveLocalStream = false) => {
     try {
       // Clear any pending stream updates
       if (streamUpdateTimeout.current) {
@@ -1438,11 +1395,16 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
       connectionFailureCount.current = 0;
       lastSuccessfulConnection.current = null;
       
-      // Stop local stream safely
-      try {
-        stopLocalStream();
-      } catch (streamError) {
-        console.warn('⚠️ Error stopping local stream:', streamError);
+      // Only stop local stream if not preserving it (for "next" button optimization)
+      if (!preserveLocalStream) {
+        try {
+          stopLocalStream();
+        } catch (streamError) {
+          // Only log in development mode to reduce Railway rate limits
+          if (process.env.NODE_ENV === 'development') {
+            console.warn('Error stopping local stream:', streamError);
+          }
+        }
       }
       
       // Clear remote stream
@@ -1458,22 +1420,26 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
       setIsReconnecting(false);
       setNegotiationNeeded(false);
       
-      // Close peer connection safely
+      // Close peer connection safely using connection pool
       if (peerConnection.current) {
         try {
-          console.log('🔌 Closing peer connection...');
-          peerConnection.current.close();
+          if (preserveLocalStream) {
+            // Just deactivate the connection, don't close it
+            connectionPool.deactivateConnection(peerConnection.current.toString());
+          } else {
+            // Close the connection completely
+            connectionPool.closeConnection(peerConnection.current.toString());
+          }
         } catch (pcError) {
-          console.warn('⚠️ Error closing peer connection:', pcError);
+          logger.webrtcWarn('end_call', 'Error closing peer connection', pcError);
         } finally {
           peerConnection.current = null;
           setPeerConnectionState(null);
         }
       }
       
-      console.log('✅ WebRTC call ended and cleanup completed');
     } catch (error) {
-      console.error('❌ Error during call cleanup:', error);
+      logger.webrtcError('end_call', 'Error during call cleanup', error);
       // Don't re-throw the error to prevent ErrorBoundary from catching it
     }
   }, [stopLocalStream]);
@@ -1482,7 +1448,6 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
   useEffect(() => {
     // Initialize peer connection immediately when hook mounts
     if (!peerConnection.current && !isInitialized) {
-      console.log('🔄 Initializing peer connection on mount');
       initializePeerConnection();
       setIsInitialized(true);
     }
@@ -1496,7 +1461,6 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
   // Enhanced cleanup on unmount
   useEffect(() => {
     return () => {
-      console.log('useWebRTC cleanup on unmount');
       // Don't call endCall here as it might cause infinite loops
       // Just clean up the peer connection directly
       if (peerConnection.current) {
@@ -1551,18 +1515,14 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
     adaptToNetworkConditions,
     toggleAdaptiveBitrate: () => {
       adaptiveBitrateEnabled.current = !adaptiveBitrateEnabled.current;
-      console.log('🎯 Adaptive bitrate:', adaptiveBitrateEnabled.current ? 'enabled' : 'disabled');
     },
     toggleNetworkAdaptation: () => {
       networkAdaptationEnabled.current = !networkAdaptationEnabled.current;
-      console.log('🌐 Network adaptation:', networkAdaptationEnabled.current ? 'enabled' : 'disabled');
     },
     toggleAutomaticRecovery: () => {
       automaticRecoveryEnabled.current = !automaticRecoveryEnabled.current;
-      console.log('🔄 Automatic recovery:', automaticRecoveryEnabled.current ? 'enabled' : 'disabled');
     },
     forceRecovery: () => {
-      console.log('🔄 Forcing recovery...');
       setRecoveryAttempts(0);
       initializePeerConnection();
     },

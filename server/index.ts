@@ -3,6 +3,8 @@ import cors from "cors";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { rateLimiter, securityHeaders, logError } from "./middleware";
+// import compression from "compression";
+// import helmet from "helmet";
 
 const app = express();
 
@@ -15,8 +17,35 @@ declare module 'http' {
 // Trust proxy for Railway's reverse proxy
 app.set('trust proxy', 1);
 
+// Railway-specific optimizations
+if (process.env.NODE_ENV === 'production') {
+  // Disable unnecessary features
+  app.disable('x-powered-by');
+  
+  // Set memory limits
+  process.setMaxListeners(0);
+}
+
 // Security headers (must be before other middleware)
 app.use(securityHeaders);
+
+// Compression for Railway cost optimization (commented out until dependencies are installed)
+// app.use(compression({
+//   level: 6,
+//   threshold: 1024,
+//   filter: (req, res) => {
+//     if (req.headers['x-no-compression']) {
+//       return false;
+//     }
+//     return compression.filter(req, res);
+//   }
+// }));
+
+// Helmet for security (commented out until dependencies are installed)
+// app.use(helmet({
+//   contentSecurityPolicy: false,
+//   crossOriginEmbedderPolicy: false
+// }));
 
 // CORS Configuration
 const corsOrigins = process.env.CORS_ORIGIN 
