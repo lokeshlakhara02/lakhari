@@ -24,12 +24,32 @@ interface RetryConfig {
   backoffMultiplier: number;
 }
 
+interface ConnectionHealth {
+  isHealthy: boolean;
+  quality: 'excellent' | 'good' | 'fair' | 'poor' | 'critical';
+  bandwidth: number;
+  latency: number;
+  packetLoss: number;
+  jitter: number;
+  lastUpdate: Date;
+}
+
+interface AdvancedWebRTCOptions {
+  enableAdaptiveBitrate: boolean;
+  enableNetworkAdaptation: boolean;
+  enableAutomaticRecovery: boolean;
+  maxRetryAttempts: number;
+  connectionTimeout: number;
+  iceGatheringTimeout: number;
+  offerAnswerTimeout: number;
+}
+
 interface PermissionState {
   camera: 'unknown' | 'granted' | 'denied' | 'prompt';
   microphone: 'unknown' | 'granted' | 'denied' | 'prompt';
 }
 
-export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
+export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, options?: Partial<AdvancedWebRTCOptions>) {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
@@ -48,6 +68,20 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [negotiationNeeded, setNegotiationNeeded] = useState(false);
   
+  // Advanced features
+  const [connectionHealth, setConnectionHealth] = useState<ConnectionHealth>({
+    isHealthy: false,
+    quality: 'unknown',
+    bandwidth: 0,
+    latency: 0,
+    packetLoss: 0,
+    jitter: 0,
+    lastUpdate: new Date()
+  });
+  const [isAdapting, setIsAdapting] = useState(false);
+  const [recoveryAttempts, setRecoveryAttempts] = useState(0);
+  const [maxRecoveryAttempts] = useState(options?.maxRetryAttempts || 5);
+  
   const peerConnection = useRef<RTCPeerConnection | null>(null);
   const [peerConnectionState, setPeerConnectionState] = useState<RTCPeerConnection | null>(null);
   const streamUpdateTimeout = useRef<NodeJS.Timeout>();
@@ -65,6 +99,14 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
   });
   const negotiationTimeout = useRef<NodeJS.Timeout>();
   const iceGatheringTimeout = useRef<NodeJS.Timeout>();
+  const healthCheckInterval = useRef<NodeJS.Timeout>();
+  const adaptationTimeout = useRef<NodeJS.Timeout>();
+  const connectionTimeout = useRef<NodeJS.Timeout>();
+  const lastSuccessfulConnection = useRef<Date | null>(null);
+  const connectionFailureCount = useRef(0);
+  const adaptiveBitrateEnabled = useRef(options?.enableAdaptiveBitrate !== false);
+  const networkAdaptationEnabled = useRef(options?.enableNetworkAdaptation !== false);
+  const automaticRecoveryEnabled = useRef(options?.enableAutomaticRecovery !== false);
 
   // Check current permission states
   const checkPermissions = useCallback(async () => {
@@ -164,6 +206,128 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
     return error;
   }, []);
 
+  // Advanced connection health monitoring
+  const updateConnectionHealth = useCallback(async () => {
+    if (!peerConnection.current || peerConnection.current.connectionState !== 'connected') {
+      return;
+    }
+
+    try {
+      const stats = await peerConnection.current.getStats();
+      let bandwidth = 0;
+      let latency = 0;
+      let packetLoss = 0;
+      let jitter = 0;
+      let totalPackets = 0;
+      let totalBytes = 0;
+
+      stats.forEach(report => {
+        if (report.type === 'inbound-rtp') {
+          totalPackets += report.packetsReceived || 0;
+          totalBytes += report.bytesReceived || 0;
+          packetLoss += report.packetsLost || 0;
+          
+          if (report.mediaType === 'video') {
+            bandwidth += (report.bytesReceived || 0) * 8; // Convert to bits
+          }
+        }
+        
+        if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+          latency = (report.currentRoundTripTime || 0) * 1000; // Convert to ms
+        }
+      });
+
+      const lossRate = totalPackets > 0 ? (packetLoss / (totalPackets + packetLoss)) * 100 : 0;
+      const bandwidthMbps = bandwidth / (1024 * 1024); // Convert to Mbps
+
+      // Determine connection quality
+      let quality: ConnectionHealth['quality'] = 'excellent';
+      if (latency > 200 || lossRate > 5 || bandwidthMbps < 1) {
+        quality = 'critical';
+      } else if (latency > 150 || lossRate > 3 || bandwidthMbps < 2) {
+        quality = 'poor';
+      } else if (latency > 100 || lossRate > 1 || bandwidthMbps < 5) {
+        quality = 'fair';
+      } else if (latency > 50 || lossRate > 0.5 || bandwidthMbps < 10) {
+        quality = 'good';
+      }
+
+      const health: ConnectionHealth = {
+        isHealthy: quality !== 'critical' && quality !== 'poor',
+        quality,
+        bandwidth: bandwidthMbps,
+        latency,
+        packetLoss: lossRate,
+        jitter,
+        lastUpdate: new Date()
+      };
+
+      setConnectionHealth(health);
+
+      // Trigger adaptive bitrate if enabled
+      if (adaptiveBitrateEnabled.current && (quality === 'poor' || quality === 'critical')) {
+        await adaptToNetworkConditions(health);
+      }
+
+    } catch (error) {
+      console.warn('Failed to update connection health:', error);
+    }
+  }, []);
+
+  // Adaptive bitrate and network adaptation
+  const adaptToNetworkConditions = useCallback(async (health: ConnectionHealth) => {
+    if (!localStream || !networkAdaptationEnabled.current) return;
+
+    setIsAdapting(true);
+    
+    try {
+      const videoTracks = localStream.getVideoTracks();
+      
+      if (videoTracks.length > 0 && videoTracks[0].getConstraints) {
+        const currentConstraints = videoTracks[0].getConstraints();
+        let newConstraints: MediaTrackConstraints = {};
+
+        if (health.quality === 'critical') {
+          // Reduce to minimum quality
+          newConstraints = {
+            width: { ideal: 320, max: 480 },
+            height: { ideal: 240, max: 360 },
+            frameRate: { ideal: 15, max: 20 }
+          };
+        } else if (health.quality === 'poor') {
+          // Reduce quality moderately
+          newConstraints = {
+            width: { ideal: 480, max: 640 },
+            height: { ideal: 360, max: 480 },
+            frameRate: { ideal: 20, max: 25 }
+          };
+        } else if (health.quality === 'fair') {
+          // Medium quality
+          newConstraints = {
+            width: { ideal: 640, max: 1280 },
+            height: { ideal: 480, max: 720 },
+            frameRate: { ideal: 25, max: 30 }
+          };
+        } else {
+          // High quality
+          newConstraints = {
+            width: { ideal: 1280, max: 1920 },
+            height: { ideal: 720, max: 1080 },
+            frameRate: { ideal: 30, max: 60 }
+          };
+        }
+
+        // Apply new constraints
+        await videoTracks[0].applyConstraints(newConstraints);
+        console.log('🎯 Applied adaptive constraints:', newConstraints);
+      }
+    } catch (error) {
+      console.error('Failed to adapt to network conditions:', error);
+    } finally {
+      setIsAdapting(false);
+    }
+  }, [localStream]);
+
   // Retry mechanism with exponential backoff
   const retryOperation = useCallback(async <T extends any>(
     operation: () => Promise<T>,
@@ -207,18 +371,42 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
       peerConnection.current.close();
     }
 
+    // Enhanced ICE servers with fallbacks
+    const iceServers = [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun3.l.google.com:19302' },
+      { urls: 'stun:stun4.l.google.com:19302' },
+      { urls: 'stun:stun.ekiga.net' },
+      { urls: 'stun:stun.ideasip.com' },
+      { urls: 'stun:stun.schlund.de' },
+      { urls: 'stun:stun.stunprotocol.org:3478' },
+      { urls: 'stun:stun.voiparound.com' },
+      { urls: 'stun:stun.voipbuster.com' },
+      { urls: 'stun:stun.voipstunt.com' },
+      { urls: 'stun:stun.counterpath.com' },
+      { urls: 'stun:stun.1und1.de' },
+      { urls: 'stun:stun.gmx.net' },
+      { urls: 'stun:stun.callwithus.com' },
+      { urls: 'stun:stun.counterpath.net' },
+      { urls: 'stun:stun.1und1.de' },
+      { urls: 'stun:stun.gmx.net' },
+      { urls: 'stun:stun.callwithus.com' },
+      { urls: 'stun:stun.counterpath.net' },
+      { urls: 'stun:stun.internetcalls.com' }
+    ];
+
     const pc = new RTCPeerConnection({
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' },
-        { urls: 'stun:stun3.l.google.com:19302' },
-        { urls: 'stun:stun4.l.google.com:19302' },
-      ],
-      iceCandidatePoolSize: 10,
+      iceServers,
+      iceCandidatePoolSize: 20, // Increased for better connectivity
       iceTransportPolicy: 'all',
       bundlePolicy: 'max-bundle',
       rtcpMuxPolicy: 'require',
+      sdpSemantics: 'unified-plan',
+      // Enhanced configuration for better reliability
+      iceConnectionReceivingTimeout: 30000,
+      iceBackupCandidatePairPingInterval: 25000,
     });
 
     // Set the peer connection immediately
@@ -428,25 +616,38 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
         console.error('❌ Peer connection failed');
         setConnectionQuality('poor');
         setRemoteStream(null);
-        setLastError(createWebRTCError('Peer connection failed', 'peer_connection', 'CONNECTION_FAILED'));
+        connectionFailureCount.current++;
         
-        // Attempt recovery without stopping local stream
-        setIsReconnecting(true);
-        setTimeout(() => {
-          console.log('🔄 Attempting peer connection recovery...');
-          // Only reinitialize peer connection, don't stop local stream
-          if (localStream) {
-            console.log('✅ Preserving local stream during recovery');
-          }
-          initializePeerConnection();
-          setIsReconnecting(false);
-        }, 3000);
+        const error = createWebRTCError('Peer connection failed', 'peer_connection', 'CONNECTION_FAILED');
+        setLastError(error);
+        
+        // Advanced recovery logic
+        if (automaticRecoveryEnabled.current && recoveryAttempts < maxRecoveryAttempts) {
+          console.log(`🔄 Attempting automatic recovery (${recoveryAttempts + 1}/${maxRecoveryAttempts})...`);
+          setRecoveryAttempts(prev => prev + 1);
+          setIsReconnecting(true);
+          
+          // Exponential backoff for recovery attempts
+          const delay = Math.min(1000 * Math.pow(2, recoveryAttempts), 30000);
+          setTimeout(() => {
+            console.log('🔄 Executing automatic recovery...');
+            initializePeerConnection();
+            setIsReconnecting(false);
+          }, delay);
+        } else {
+          console.log('🔄 Peer connection failed, waiting for parent component to handle recovery...');
+          setIsReconnecting(true);
+        }
       } else if (pc.connectionState === 'connected') {
         console.log('🎉 Peer connection established successfully');
         setConnectionQuality('good');
         setLastError(null);
         setRetryCount(0);
         setNegotiationNeeded(false);
+        setIsReconnecting(false);
+        setRecoveryAttempts(0);
+        connectionFailureCount.current = 0;
+        lastSuccessfulConnection.current = new Date();
         
         // Clear negotiation timeout
         if (negotiationTimeout.current) {
@@ -488,6 +689,13 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
         throw error;
       }
     };
+
+    // Advanced connection health monitoring
+    healthCheckInterval.current = setInterval(async () => {
+      if (pc.connectionState === 'connected') {
+        await updateConnectionHealth();
+      }
+    }, 3000); // Check every 3 seconds for more responsive adaptation
 
     // Enhanced connection quality monitoring with detailed stats
     connectionQualityInterval.current = setInterval(async () => {
@@ -878,6 +1086,12 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
     try {
       console.log('Creating WebRTC offer...');
       
+      // Check if peer connection is in the right state
+      if (peerConnection.current.signalingState !== 'stable') {
+        console.log('⏳ Waiting for peer connection to be stable...', peerConnection.current.signalingState);
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      
       // Enhanced offer creation with constraints
       const offerOptions = {
         offerToReceiveAudio: true,
@@ -928,6 +1142,12 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
 
     try {
       console.log('Creating WebRTC answer for offer:', offer.type);
+      
+      // Check if peer connection is in the right state
+      if (peerConnection.current.signalingState !== 'stable') {
+        console.log('⏳ Waiting for peer connection to be stable before creating answer...', peerConnection.current.signalingState);
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
       
       // Enhanced answer creation with validation
       await retryOperation(
@@ -1125,7 +1345,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
   }, [localStream, createWebRTCError]);
 
   const endCall = useCallback(() => {
-    console.log('Ending WebRTC call and cleaning up...');
+    console.log('🧹 Ending WebRTC call and cleaning up...');
     
     try {
       // Clear any pending stream updates
@@ -1164,13 +1384,37 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
         iceGatheringTimeout.current = undefined;
       }
       
+      // Clear health check interval
+      if (healthCheckInterval.current) {
+        clearInterval(healthCheckInterval.current);
+        healthCheckInterval.current = undefined;
+      }
+      
+      // Clear adaptation timeout
+      if (adaptationTimeout.current) {
+        clearTimeout(adaptationTimeout.current);
+        adaptationTimeout.current = undefined;
+      }
+      
+      // Clear connection timeout
+      if (connectionTimeout.current) {
+        clearTimeout(connectionTimeout.current);
+        connectionTimeout.current = undefined;
+      }
+      
       // Reset initialization flag
       isInitializing.current = false;
       lastStreamId.current = null;
       connectionStateInitialized.current = false;
+      connectionFailureCount.current = 0;
+      lastSuccessfulConnection.current = null;
       
-      // Stop local stream
-      stopLocalStream();
+      // Stop local stream safely
+      try {
+        stopLocalStream();
+      } catch (streamError) {
+        console.warn('⚠️ Error stopping local stream:', streamError);
+      }
       
       // Clear remote stream
       setRemoteStream(null);
@@ -1185,16 +1429,23 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
       setIsReconnecting(false);
       setNegotiationNeeded(false);
       
-      // Close peer connection
+      // Close peer connection safely
       if (peerConnection.current) {
-        console.log('Closing peer connection...');
-        peerConnection.current.close();
-        peerConnection.current = null;
+        try {
+          console.log('🔌 Closing peer connection...');
+          peerConnection.current.close();
+        } catch (pcError) {
+          console.warn('⚠️ Error closing peer connection:', pcError);
+        } finally {
+          peerConnection.current = null;
+          setPeerConnectionState(null);
+        }
       }
       
-      console.log('WebRTC call ended and cleanup completed');
+      console.log('✅ WebRTC call ended and cleanup completed');
     } catch (error) {
-      console.error('Error during call cleanup:', error);
+      console.error('❌ Error during call cleanup:', error);
+      // Don't re-throw the error to prevent ErrorBoundary from catching it
     }
   }, [stopLocalStream]);
 
@@ -1254,5 +1505,40 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
     requestPermissions,
     hasPermissions,
     peerConnection: peerConnectionState,
+    // Advanced features
+    connectionHealth,
+    isAdapting,
+    recoveryAttempts,
+    maxRecoveryAttempts,
+    updateConnectionHealth,
+    adaptToNetworkConditions,
+    toggleAdaptiveBitrate: () => {
+      adaptiveBitrateEnabled.current = !adaptiveBitrateEnabled.current;
+      console.log('🎯 Adaptive bitrate:', adaptiveBitrateEnabled.current ? 'enabled' : 'disabled');
+    },
+    toggleNetworkAdaptation: () => {
+      networkAdaptationEnabled.current = !networkAdaptationEnabled.current;
+      console.log('🌐 Network adaptation:', networkAdaptationEnabled.current ? 'enabled' : 'disabled');
+    },
+    toggleAutomaticRecovery: () => {
+      automaticRecoveryEnabled.current = !automaticRecoveryEnabled.current;
+      console.log('🔄 Automatic recovery:', automaticRecoveryEnabled.current ? 'enabled' : 'disabled');
+    },
+    forceRecovery: () => {
+      console.log('🔄 Forcing recovery...');
+      setRecoveryAttempts(0);
+      initializePeerConnection();
+    },
+    getConnectionDiagnostics: () => ({
+      connectionHealth,
+      isAdapting,
+      recoveryAttempts,
+      maxRecoveryAttempts,
+      connectionFailureCount: connectionFailureCount.current,
+      lastSuccessfulConnection: lastSuccessfulConnection.current,
+      adaptiveBitrateEnabled: adaptiveBitrateEnabled.current,
+      networkAdaptationEnabled: networkAdaptationEnabled.current,
+      automaticRecoveryEnabled: automaticRecoveryEnabled.current
+    })
   };
 }

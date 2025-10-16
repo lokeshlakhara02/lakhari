@@ -75,6 +75,11 @@ export default function VideoChat() {
   const [retryAttempts, setRetryAttempts] = useState(0);
   const [lastErrorTime, setLastErrorTime] = useState<Date | null>(null);
   const [autoRecoveryEnabled, setAutoRecoveryEnabled] = useState(true);
+  const [recoveryInProgress, setRecoveryInProgress] = useState(false);
+  
+  // Advanced features state
+  const [showAdvancedControls, setShowAdvancedControls] = useState(false);
+  const [connectionDiagnostics, setConnectionDiagnostics] = useState<any>(null);
   
   // Control bar visibility state
   const [isControlBarVisible, setIsControlBarVisible] = useState(true);
@@ -231,7 +236,15 @@ export default function VideoChat() {
         recoverable: true
       });
     }
-  }, [addError]));
+  }, [addError]), {
+    enableAdaptiveBitrate: true,
+    enableNetworkAdaptation: true,
+    enableAutomaticRecovery: true,
+    maxRetryAttempts: 5,
+    connectionTimeout: 30000,
+    iceGatheringTimeout: 15000,
+    offerAnswerTimeout: 10000
+  });
   
   const attemptRecovery = useCallback(async (error: VideoChatError) => {
     try {
@@ -457,6 +470,7 @@ export default function VideoChat() {
     }
 
     return () => {
+      console.log('🧹 VideoChat component unmounting, cleaning up...');
       isMounted = false;
       initializationAttempted = false;
       
@@ -465,9 +479,18 @@ export default function VideoChat() {
         clearTimeout(errorRecoveryTimeoutRef.current);
       }
       
-      endCall();
+      // Clear session storage
+      sessionStorage.removeItem('currentSessionId');
+      sessionStorage.removeItem('currentSessionType');
+      
+      // Clean up WebRTC safely
+      try {
+        endCall();
+      } catch (error) {
+        console.warn('⚠️ Error during unmount cleanup:', error);
+      }
     };
-  }, []); // Remove dependencies to prevent infinite loop
+  }, [endCall]); // Include endCall in dependencies
 
   useEffect(() => {
     const localVideo = localVideoRef.current;
@@ -619,14 +642,76 @@ export default function VideoChat() {
       hasRemoteStream: !!remoteStream,
       hasLocalStream: !!localStream,
       connectionQuality: webrtcConnectionQuality,
+      sessionId: session?.id,
+      connectionStatus,
       timestamp: new Date().toISOString()
     });
+    
+    // Handle peer connection failures
+    if (connectionState === 'failed' && session && isConnected && !recoveryInProgress) {
+      console.log('🔄 Peer connection failed, attempting recovery...');
+      setRecoveryInProgress(true);
+      
+      // Wait a bit before attempting recovery
+      setTimeout(async () => {
+        try {
+          console.log('🔄 Attempting WebRTC recovery...');
+          
+          // Reinitialize peer connection
+          if (peerConnection) {
+            console.log('🔄 Reinitializing peer connection...');
+            // The peer connection will be reinitialized by the hook
+          }
+          
+          // If we have a session, try to re-establish the connection
+          if (session && sendMessage) {
+            console.log('🔄 Sending recovery message to server...');
+            sendMessage({
+              type: 'webrtc_recovery',
+              sessionId: session.id,
+            });
+          }
+        } catch (error) {
+          console.error('❌ Recovery attempt failed:', error);
+        } finally {
+          // Reset recovery flag after a delay
+          setTimeout(() => {
+            setRecoveryInProgress(false);
+          }, 5000);
+        }
+      }, 2000);
+    }
     
     // If we have a good connection but no remote stream, log it for debugging
     if (connectionState === 'connected' && iceConnectionState === 'connected' && !remoteStream) {
       console.warn('⚠️ Connection established but no remote stream received');
+      console.log('🔍 Debug info:', {
+        peerConnection: !!peerConnection,
+        localStream: !!localStream,
+        remoteStream: !!remoteStream,
+        session: !!session
+      });
     }
-  }, [connectionState, iceConnectionState, remoteStream, localStream, webrtcConnectionQuality]);
+    
+    // If we have a remote stream, log its details
+    if (remoteStream) {
+      console.log('📺 Remote stream details:', {
+        streamId: remoteStream.id,
+        videoTracks: remoteStream.getVideoTracks().length,
+        audioTracks: remoteStream.getAudioTracks().length,
+        videoTrackEnabled: remoteStream.getVideoTracks().length > 0 ? remoteStream.getVideoTracks()[0].enabled : false,
+        audioTrackEnabled: remoteStream.getAudioTracks().length > 0 ? remoteStream.getAudioTracks()[0].enabled : false
+      });
+    }
+  }, [connectionState, iceConnectionState, remoteStream, localStream, webrtcConnectionQuality, session, connectionStatus, peerConnection, isConnected, sendMessage]);
+
+  // Advanced connection diagnostics monitoring
+  useEffect(() => {
+    if (getConnectionDiagnostics) {
+      const diagnostics = getConnectionDiagnostics();
+      setConnectionDiagnostics(diagnostics);
+    }
+  }, [connectionState, iceConnectionState, getConnectionDiagnostics]);
   
   // Connection stability monitoring
   useEffect(() => {
@@ -657,7 +742,15 @@ export default function VideoChat() {
 
   // WebSocket message handlers - only set up once
   useEffect(() => {
-    if (!isConnected || !userId) return;
+    if (!isConnected || !userId) {
+      console.log('⏳ Waiting for WebSocket connection and userId...', {
+        isConnected,
+        userId: !!userId
+      });
+      return;
+    }
+
+    console.log('🔗 WebSocket connected, initializing video chat...');
 
     // Try to recover existing session first
     const savedSessionId = sessionStorage.getItem('currentSessionId');
@@ -665,7 +758,7 @@ export default function VideoChat() {
     
     if (savedSessionId && savedSessionType === 'video') {
       // Attempt session recovery
-      console.log('Attempting session recovery for:', savedSessionId);
+      console.log('🔄 Attempting session recovery for:', savedSessionId);
       sendMessage({
         type: 'get_session_recovery',
         sessionId: savedSessionId,
@@ -680,10 +773,14 @@ export default function VideoChat() {
         interests,
         gender,
       };
-      console.log('Video chat: Sending find_match message:', findMatchMessage);
-      sendMessage(findMatchMessage);
+      console.log('🎯 Video chat: Sending find_match message:', findMatchMessage);
+      
+      // Add a small delay to ensure WebSocket is fully ready
+      setTimeout(() => {
+        sendMessage(findMatchMessage);
+      }, 100);
     }
-  }, [isConnected, userId, sendMessage]); // Remove userGender from dependencies to prevent re-renders
+  }, [isConnected, userId, sendMessage, userGender]); // Include userGender to handle changes
 
   // Stable message handlers using useCallback
   const handleWaitingForMatch = useCallback(() => {
@@ -758,6 +855,12 @@ export default function VideoChat() {
         }
 
         console.log('✅ Peer connection is ready, proceeding with offer creation');
+        
+        // Ensure the peer connection is in the right state
+        if (peerConnection.signalingState !== 'stable') {
+          console.log('⏳ Waiting for peer connection to be stable...', peerConnection.signalingState);
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
 
         // Create WebRTC offer
         if (createOffer && sendMessage) {
@@ -1080,12 +1183,20 @@ export default function VideoChat() {
       });
 
       onMessage('message_received', (data: any) => {
+      console.log('📥 Message received event:', {
+        messageId: data.message.id,
+        content: data.message.content,
+        senderId: data.message.senderId,
+        currentUserId: userId,
+        isFromPartner: data.message.senderId !== userId
+      });
+      
       const message: Message = {
         id: data.message.id || Date.now().toString(),
         content: data.message.content,
         senderId: data.message.senderId || 'unknown',
         timestamp: new Date(data.message.timestamp || Date.now()),
-        isOwn: false,
+        isOwn: false, // Always false for received messages
         attachments: data.message.attachments || [],
         hasEmoji: data.message.hasEmoji || false,
       };
@@ -1093,12 +1204,20 @@ export default function VideoChat() {
       });
 
       onMessage('message_sent', (data: any) => {
+      console.log('📤 Message sent event received:', {
+        messageId: data.message.id,
+        content: data.message.content,
+        senderId: data.message.senderId,
+        currentUserId: userId,
+        isOwn: data.message.senderId === userId
+      });
+      
       const message: Message = {
         id: data.message.id || Date.now().toString(),
         content: data.message.content,
         senderId: data.message.senderId || userId || 'self',
         timestamp: new Date(data.message.timestamp || Date.now()),
-        isOwn: true,
+        isOwn: data.message.senderId === userId, // Only mark as own if senderId matches current userId
         attachments: data.message.attachments || [],
         hasEmoji: data.message.hasEmoji || false,
       };
@@ -1226,21 +1345,64 @@ export default function VideoChat() {
     setIsControlBarPinned(false);
   };
 
-  const handleEndCall = () => {
-    if (session) {
-      sendMessage({
-        type: 'end_chat',
-        sessionId: session.id,
-      });
+  const handleEndCall = useCallback(() => {
+    // Prevent multiple calls
+    if (connectionStatus === 'ended') {
+      console.log('⚠️ Call already ended, ignoring duplicate end call');
+      return;
     }
-    // Clear session storage
-    sessionStorage.removeItem('currentSessionId');
-    sessionStorage.removeItem('currentSessionType');
-    // Clear messages when ending call (ephemeral chat)
-    setTextMessages([]);
-    endCall();
-    setLocation('/');
-  };
+    
+    console.log('🔄 Ending call and cleaning up...');
+    
+    try {
+      // Send end chat message if we have a session and connection
+      if (session && isConnected && sendMessage) {
+        console.log('📤 Sending end_chat message');
+        sendMessage({
+          type: 'end_chat',
+          sessionId: session.id,
+        });
+      }
+      
+      // Clear session storage
+      sessionStorage.removeItem('currentSessionId');
+      sessionStorage.removeItem('currentSessionType');
+      
+      // Clear messages when ending call (ephemeral chat)
+      setTextMessages([]);
+      
+      // Reset session and connection status
+      setSession(null);
+      setConnectionStatus('ended');
+      
+      // Clean up WebRTC
+      console.log('🧹 Cleaning up WebRTC...');
+      endCall();
+      
+      // Navigate to home page
+      console.log('🏠 Navigating to home page...');
+      try {
+        setLocation('/');
+      } catch (navError) {
+        console.warn('⚠️ Navigation error, using fallback:', navError);
+        // Fallback to window location
+        window.location.href = '/';
+      }
+      
+      console.log('✅ Call ended successfully');
+    } catch (error) {
+      console.error('❌ Error during call cleanup:', error);
+      
+      // Even if there's an error, try to navigate to home
+      try {
+        setLocation('/');
+      } catch (navError) {
+        console.error('❌ Navigation error:', navError);
+        // Fallback to window location
+        window.location.href = '/';
+      }
+    }
+  }, [session, isConnected, sendMessage, endCall, setLocation, connectionStatus]);
 
   const handleGenderChange = (newGender: 'male' | 'female' | 'other') => {
     setUserGender(newGender);
@@ -1256,8 +1418,8 @@ export default function VideoChat() {
     }
   };
 
-  const handleNextStranger = () => {
-    console.log('Next stranger clicked - current status:', connectionStatus);
+  const handleNextStranger = useCallback(() => {
+    console.log('🔄 Next stranger clicked - current status:', connectionStatus);
     
     // Clear any existing session storage
     sessionStorage.removeItem('currentSessionId');
@@ -1266,8 +1428,18 @@ export default function VideoChat() {
     const interests = JSON.parse(localStorage.getItem('interests') || '[]');
     const gender = userGender || localStorage.getItem('gender') as 'male' | 'female' | 'other' | null;
     
-    if (session) {
+    // Clear messages when moving to next stranger (ephemeral chat)
+    setTextMessages([]);
+    
+    // Reset connection status to waiting
+    setConnectionStatus('waiting');
+    
+    // Reset session
+    setSession(null);
+    
+    if (session && isConnected) {
       // If we have an active session, end it and find a new match
+      console.log('📤 Sending next_stranger message for active session');
       sendMessage({
         type: 'next_stranger',
         sessionId: session.id,
@@ -1277,20 +1449,20 @@ export default function VideoChat() {
       });
     } else {
       // If no active session, just start looking for a new match
-      sendMessage({
+      console.log('🎯 Sending find_match message for new connection');
+      const findMatchMessage = {
         type: 'find_match',
         chatType: 'video',
         interests,
         gender,
-      });
+      };
+      
+      // Add a small delay to ensure the previous session is properly cleared
+      setTimeout(() => {
+        sendMessage(findMatchMessage);
+      }, 200);
     }
-    
-    // Clear messages when moving to next stranger (ephemeral chat)
-    setTextMessages([]);
-    
-    // Reset connection status to waiting
-    setConnectionStatus('waiting');
-  };
+  }, [connectionStatus, session, isConnected, sendMessage, userGender]);
 
   const handleSendTextMessage = (content: string, attachments?: Attachment[]) => {
     if ((!content.trim() && !attachments?.length) || !session) return;
