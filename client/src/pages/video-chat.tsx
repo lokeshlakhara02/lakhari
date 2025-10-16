@@ -577,40 +577,27 @@ export default function VideoChat() {
     };
   }, [isConnected, session, addError]);
 
-  // CRITICAL: Initialize WebRTC and camera immediately when component mounts
+  // Initialize WebRTC and camera when component mounts
   useEffect(() => {
     if (!isConnected || !userId) {
+      console.log('⏳ Waiting for WebSocket connection and userId...');
       return;
     }
 
     // Prevent multiple initializations
     if (localStream) {
+      console.log('✅ Local stream already exists, skipping initialization');
       return;
     }
 
-    // Initialize WebRTC and camera immediately
+    console.log('🚀 Starting video chat initialization...');
+
+    // Initialize WebRTC and camera
     const initializeWebRTC = async () => {
       try {
+        console.log('🎥 Initializing camera and WebRTC...');
         await startLocalStream(true, true);
-        
-        // Wait for peer connection to be ready with retries
-        let retryCount = 0;
-        const maxRetries = 10;
-        
-        while (!peerConnection && retryCount < maxRetries) {
-          await new Promise(resolve => setTimeout(resolve, 200));
-          retryCount++;
-          console.log(`⏳ Waiting for peer connection... (attempt ${retryCount}/${maxRetries})`);
-        }
-        
-        if (!peerConnection) {
-          console.error('❌ Peer connection not ready after initialization');
-          addError({
-            type: 'webrtc',
-            message: 'Peer connection not ready after initialization',
-            recoverable: true
-          });
-        }
+        console.log('✅ Camera and WebRTC initialized successfully');
       } catch (error) {
         console.error('❌ Failed to initialize camera/WebRTC:', error);
         addError({
@@ -621,11 +608,12 @@ export default function VideoChat() {
       }
     };
 
-    // Initialize immediately
+    // Initialize WebRTC first
     initializeWebRTC();
 
     // Prevent multiple WebSocket connections
     if (session) {
+      console.log('✅ Session already exists, skipping match request');
       return;
     }
 
@@ -634,6 +622,7 @@ export default function VideoChat() {
     const savedSessionType = sessionStorage.getItem('currentSessionType');
     
     if (savedSessionId && savedSessionType === 'video') {
+      console.log('🔄 Attempting session recovery...');
       // Attempt session recovery
       sendMessage({
         type: 'get_session_recovery',
@@ -650,20 +639,31 @@ export default function VideoChat() {
         gender,
       };
       
+      console.log('🔍 Looking for video chat match...', { interests, gender });
+      
       // Add a small delay to ensure WebSocket is fully ready
       setTimeout(() => {
         sendMessage(findMatchMessage);
       }, 100);
     }
-  }, [isConnected, userId, startLocalStream, addError, sendMessage, session, userGender, localStream]); // Include all dependencies
+  }, [isConnected, userId, startLocalStream, addError, sendMessage, session, userGender, localStream]);
 
   // Stable message handlers using useCallback
   const handleWaitingForMatch = useCallback(() => {
+      console.log('⏳ Waiting for match...');
       setConnectionStatus('waiting');
   }, []);
 
   const handleMatchFound = useCallback(async (data: any) => {
+    // Prevent duplicate match handling
+    if (session && session.id === data.sessionId) {
+      console.log('⚠️ Duplicate match_found event ignored');
+      return;
+    }
+
     try {
+      console.log('🎉 Match found!', data);
+      
       const newSession = {
         id: data.sessionId,
         partnerId: data.partnerId,
@@ -687,13 +687,13 @@ export default function VideoChat() {
       );
       setSharedInterests(shared);
 
-      // CRITICAL: Ensure WebRTC peer connection is ready
+      // Ensure WebRTC peer connection is ready
       if (!peerConnection) {
         console.log('🔧 Peer connection not ready, initializing...');
         try {
           await startLocalStream(true, true);
-          // Wait a bit for peer connection to be created
-          await new Promise(resolve => setTimeout(resolve, 500));
+          // Wait for peer connection to be created
+          await new Promise(resolve => setTimeout(resolve, 1000));
         } catch (error) {
           console.error('❌ Failed to initialize WebRTC:', error);
           addError({
@@ -716,78 +716,44 @@ export default function VideoChat() {
         return;
       }
 
-        // Wait for peer connection to be ready
-        let retryCount = 0;
-        const maxRetries = 50; // Increased retries for better reliability
-        
-        while (!peerConnection && retryCount < maxRetries) {
-          // Only log in development mode to reduce Railway rate limits
-          if (process.env.NODE_ENV === 'development' && (retryCount % 10 === 0 || retryCount === maxRetries - 1)) {
-          }
-          await new Promise(resolve => setTimeout(resolve, 300));
-          retryCount++;
-        }
+      // Peer connection should be ready at this point
 
-        if (!peerConnection) {
-          // Only log critical errors to reduce Railway rate limits
-          if (process.env.NODE_ENV === 'development') {
-            console.error('Peer connection not ready after waiting');
-          }
-          
-          // Try to force initialization
-          // The peer connection should be initialized by the hook
-          
-          // Wait a bit more
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          
-          if (!peerConnection) {
-            addError({
-              type: 'webrtc',
-              message: 'Peer connection not ready after initialization',
-              recoverable: true
+      // Ensure the peer connection is in the right state
+      if (peerConnection.signalingState !== 'stable') {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+
+      // Create WebRTC offer
+      if (createOffer && sendMessage) {
+        try {
+          console.log('📤 Creating WebRTC offer...');
+          const offer = await createOffer();
+          if (offer) {
+            sendMessage({
+              type: 'webrtc_offer',
+              sessionId: data.sessionId,
+              offer,
             });
-            return;
+            console.log('✅ WebRTC offer sent successfully');
+          } else {
+            throw new Error('Failed to create offer - returned null');
           }
-        }
-
-        
-        // Ensure the peer connection is in the right state
-        if (peerConnection.signalingState !== 'stable') {
-          await new Promise(resolve => setTimeout(resolve, 1000)); // Increased wait time
-        }
-
-        // Create WebRTC offer
-        if (createOffer && sendMessage) {
-          try {
-            const offer = await createOffer();
-            if (offer) {
-              sendMessage({
-                type: 'webrtc_offer',
-                sessionId: data.sessionId,
-                offer,
-              });
-            } else {
-              throw new Error('Failed to create offer - returned null');
-            }
-          } catch (error) {
-            console.error('❌ Failed to create WebRTC offer:', error);
-            addError({
-              type: 'webrtc',
-              message: `Failed to create WebRTC offer: ${error instanceof Error ? error.message : 'Unknown error'}`,
-              recoverable: true
-            });
-          }
-        } else {
-          // Only log critical errors to reduce Railway rate limits
-          if (process.env.NODE_ENV === 'development') {
-            console.error('Missing createOffer function or sendMessage function');
-          }
+        } catch (error) {
+          console.error('❌ Failed to create WebRTC offer:', error);
           addError({
             type: 'webrtc',
-            message: 'Missing required functions for WebRTC offer creation',
+            message: `Failed to create WebRTC offer: ${error instanceof Error ? error.message : 'Unknown error'}`,
             recoverable: true
           });
         }
+      } else {
+        console.error('Missing createOffer function or sendMessage function');
+        addError({
+          type: 'webrtc',
+          message: 'Missing required functions for WebRTC offer creation',
+          recoverable: true
+        });
+      }
     } catch (error) {
       // Only log critical errors to reduce Railway rate limits
       if (process.env.NODE_ENV === 'development') {
@@ -1041,7 +1007,12 @@ export default function VideoChat() {
 
   // WebSocket message handlers - stable references
   useEffect(() => {
-    if (!isConnected) return;
+    if (!isConnected) {
+      console.log('🔌 WebSocket not connected, skipping message handler registration');
+      return;
+    }
+
+    console.log('📡 Registering WebSocket message handlers...');
 
     // Register main message handlers first
     if (onMessage) {
@@ -1050,6 +1021,7 @@ export default function VideoChat() {
       onMessage('webrtc_offer', handleWebRTCOffer);
       onMessage('webrtc_answer', handleWebRTCAnswer);
       onMessage('webrtc_ice_candidate', handleIceCandidate);
+      console.log('✅ Main WebSocket handlers registered');
     }
 
     // Register additional message handlers
