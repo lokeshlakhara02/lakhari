@@ -371,6 +371,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
   const initializePeerConnection = useCallback(() => {
     // Close existing connection if any
     if (peerConnection.current) {
+      console.log('🔄 Closing existing peer connection...');
       peerConnection.current.close();
     }
 
@@ -396,6 +397,8 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
       { urls: 'stun:stun.internetcalls.com' }
     ];
 
+    console.log('🔗 Creating new RTCPeerConnection...');
+    
     // Create new peer connection directly (simplified approach)
     const pc = new RTCPeerConnection({
       iceServers,
@@ -412,10 +415,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
     peerConnection.current = pc;
     setPeerConnectionState(pc);
     
-    // Debug: Log peer connection creation
-    if (process.env.NODE_ENV === 'development') {
-      console.log('🔗 Peer connection created and set in state');
-    }
+    console.log('✅ Peer connection created and set in state');
     
     // Set up connection state handlers with reduced logging
     pc.onconnectionstatechange = () => {
@@ -962,15 +962,23 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
 
       // Enhanced peer connection setup
       if (!peerConnection.current) {
+        console.log('🔗 Initializing peer connection for local stream...');
         initializePeerConnection();
         
-        // Wait a moment for the peer connection to be created
-        await new Promise(resolve => setTimeout(resolve, 100));
+        // Wait longer for the peer connection to be created
+        let attempts = 0;
+        const maxAttempts = 50; // 5 seconds total
+        while (!peerConnection.current && attempts < maxAttempts) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+          attempts++;
+        }
         
         if (!peerConnection.current) {
-          console.error('Failed to initialize peer connection');
+          console.error('❌ Failed to initialize peer connection after timeout');
           throw new Error('Failed to initialize peer connection');
         }
+        
+        console.log('✅ Peer connection initialized successfully for local stream');
       }
       
 
