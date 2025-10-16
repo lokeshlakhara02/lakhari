@@ -38,11 +38,11 @@ class Logger {
       return false;
     }
 
-    // Check cost optimizer
-    const metrics = costOptimizer.getCurrentMetrics();
-    if (metrics.logCount > config.maxLogsPerSecond * 60) {
-      return false;
-    }
+    // Check cost optimizer (disabled to prevent circular dependency)
+    // const metrics = costOptimizer.getCurrentMetrics();
+    // if (metrics.logCount > config.maxLogsPerSecond * 60) {
+    //   return false;
+    // }
 
     // Always allow critical errors
     if (errorCode && config.criticalErrors.includes(errorCode)) {
