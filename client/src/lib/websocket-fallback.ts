@@ -553,8 +553,9 @@ export class HybridConnection {
       const now = Date.now();
       const timeSinceLastMessage = now - this.lastHeartbeat;
       
-      // If no message received in 60 seconds, consider connection stale
-      if (timeSinceLastMessage > 60000) {
+      // Only consider connection stale if no message received in 5 minutes (300 seconds)
+      // This allows for normal waiting periods between matches
+      if (timeSinceLastMessage > 300000) {
         console.warn('HybridConnection: Connection appears stale, sending heartbeat');
         this.send({ type: 'heartbeat', timestamp: now });
       }

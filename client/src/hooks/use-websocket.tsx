@@ -435,11 +435,13 @@ export function useWebSocket() {
   // Enhanced connection monitoring
   useEffect(() => {
     if (isConnected) {
-      // Start heartbeat monitoring
+      // Start heartbeat monitoring with more reasonable thresholds
       heartbeatIntervalRef.current = setInterval(() => {
         if (hybridConnection.current && lastMessageTime.current) {
           const timeSinceLastMessage = Date.now() - lastMessageTime.current;
-          if (timeSinceLastMessage > connectionConfig.current.heartbeatInterval * 2) {
+          // Only consider connection stale if no messages for 5 minutes (300 seconds)
+          // This allows for normal waiting periods between matches
+          if (timeSinceLastMessage > 300000) {
             console.warn('No messages received recently, connection may be stale');
             setConnectionQuality('poor');
           }

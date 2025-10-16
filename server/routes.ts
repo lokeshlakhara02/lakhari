@@ -493,7 +493,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const { chatType, interests, gender } = message;
-    console.log(`User ${ws.userId} looking for ${chatType} match with interests:`, interests, 'gender:', gender);
+    console.log(`🔍 User ${ws.userId} looking for ${chatType} match with interests:`, interests, 'gender:', gender);
     
     // Update user status with timestamp
     await storage.updateOnlineUser(ws.userId, {
@@ -505,7 +505,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // Enhanced matching algorithm with priority scoring and gender-based matching
     const waitingUsers = await storage.getWaitingUsers(chatType, interests);
-    console.log(`Found ${waitingUsers.length} waiting users for ${chatType} chat`);
+    console.log(`📊 Found ${waitingUsers.length} waiting users for ${chatType} chat:`, waitingUsers.map(u => ({ id: u.id, gender: u.gender, interests: u.interests })));
     
     // Calculate match score for each user
     interface MatchScore {
@@ -574,7 +574,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const bestMatch = matchScores[0];
 
     if (bestMatch) {
-      console.log(`Found match for user ${ws.userId}: ${bestMatch.user.id} with score ${bestMatch.score}`);
+      console.log(`🎉 Found match for user ${ws.userId}: ${bestMatch.user.id} with score ${bestMatch.score}`);
       // Create chat session
       const session = await storage.createChatSession({
         user1Id: ws.userId,
@@ -675,7 +675,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Calculate dynamic wait time based on current queue
         const estimatedWait = totalWaiting < 5 ? 5 : Math.min(30, totalWaiting * 5);
         
-        console.log(`No match found for user ${ws.userId}, waiting in queue. Position: ${totalWaiting}, Wait time: ${estimatedWait}s`);
+        console.log(`⏳ No match found for user ${ws.userId}, waiting in queue. Position: ${totalWaiting}, Wait time: ${estimatedWait}s`);
         
         ws.send(JSON.stringify({ 
           type: 'waiting_for_match',
