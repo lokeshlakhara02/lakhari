@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { useWebSocket } from '@/hooks/use-websocket';
 import { useWebRTC } from '@/hooks/use-webrtc';
 import { 
-  Phone, Maximize, 
+  Phone, Maximize, Mic, MicOff, Video, VideoOff, 
   SkipForward, Send, Heart, AlertCircle, ChevronDown, 
   Wifi, WifiOff, RefreshCw, CheckCircle, XCircle, Pin, PinOff
 } from 'lucide-react';
@@ -183,6 +183,8 @@ export default function VideoChat() {
     isReconnecting: webrtcIsReconnecting,
     negotiationNeeded,
     startLocalStream,
+    toggleVideo,
+    toggleAudio,
     endCall,
     createOffer,
     createAnswer,
@@ -192,7 +194,8 @@ export default function VideoChat() {
     checkPermissions,
     requestPermissions,
     peerConnection,
-    debugPeerConnection
+    debugPeerConnection,
+    forcePeerConnectionUpdate
   } = useWebRTC(useCallback((stream: MediaStream) => {
     // Remote stream callback - now handled by StableCamera component
     logger.videoChatInfo('webrtc', 'Remote stream received');
@@ -626,6 +629,11 @@ export default function VideoChat() {
         // Start local stream first
         await startLocalStream(true, true);
         
+        // Force peer connection state update
+        if (forcePeerConnectionUpdate) {
+          forcePeerConnectionUpdate();
+        }
+        
         // Wait for peer connection to be properly initialized
         let attempts = 0;
         const maxAttempts = 150; // 15 seconds total - increased timeout
@@ -633,17 +641,15 @@ export default function VideoChat() {
           await new Promise(resolve => setTimeout(resolve, 100));
           attempts++;
           
-          // Debug every 50 attempts
-          if (attempts % 50 === 0) {
-            console.log(`🔍 Waiting for peer connection... attempt ${attempts}/${maxAttempts}`);
-            if (debugPeerConnection) {
-              debugPeerConnection();
-            }
+          // Force update every 50 attempts
+          if (attempts % 50 === 0 && forcePeerConnectionUpdate) {
+            forcePeerConnectionUpdate();
           }
         }
         
         if (!peerConnection) {
           console.warn('⚠️ Peer connection not initialized after timeout, will retry when match is found');
+          console.log('🔍 Debug: peerConnection state:', peerConnection);
           if (debugPeerConnection) {
             debugPeerConnection();
           }
@@ -735,6 +741,11 @@ export default function VideoChat() {
             await startLocalStream(true, true);
           }
           
+          // Force peer connection state update
+          if (forcePeerConnectionUpdate) {
+            forcePeerConnectionUpdate();
+          }
+          
           // Wait for peer connection to be properly initialized with longer timeout
           let attempts = 0;
           const maxAttempts = 150; // 15 seconds total - increased timeout
@@ -742,17 +753,15 @@ export default function VideoChat() {
             await new Promise(resolve => setTimeout(resolve, 100));
             attempts++;
             
-            // Debug every 25 attempts
-            if (attempts % 25 === 0) {
-              console.log(`🔍 Waiting for peer connection in match... attempt ${attempts}/${maxAttempts}`);
-              if (debugPeerConnection) {
-                debugPeerConnection();
-              }
+            // Force update every 25 attempts
+            if (attempts % 25 === 0 && forcePeerConnectionUpdate) {
+              forcePeerConnectionUpdate();
             }
           }
           
           if (!peerConnection) {
             console.error('❌ Peer connection not initialized after extended timeout');
+            console.log('🔍 Debug: peerConnection state in match:', peerConnection);
             if (debugPeerConnection) {
               debugPeerConnection();
             }
@@ -1603,7 +1612,7 @@ export default function VideoChat() {
                     <div className="text-center px-4 max-w-xs mx-auto">
                       <div className="relative">
                         <div className="w-16 h-16 bg-gradient-to-br from-blue-500/20 to-purple-500/20 rounded-full flex items-center justify-center mx-auto mb-3 animate-pulse">
-                          <AlertCircle className="h-8 w-8 text-slate-700 dark:text-white/60" />
+                          <VideoOff className="h-8 w-8 text-slate-700 dark:text-white/60" />
                         </div>
                         <div className="absolute inset-0 w-16 h-16 bg-gradient-to-br from-blue-500/10 to-purple-500/10 rounded-full mx-auto animate-ping" />
                       </div>
@@ -1640,7 +1649,7 @@ export default function VideoChat() {
                   <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-200/90 to-slate-300/90 dark:from-slate-800/90 dark:to-slate-900/90 backdrop-blur-sm">
                     <div className="text-center">
                       <div className="w-16 h-16 bg-gradient-to-br from-green-500/20 to-blue-500/20 rounded-full flex items-center justify-center mx-auto mb-3">
-                        <AlertCircle className="h-8 w-8 text-slate-700 dark:text-white/60" />
+                        <VideoOff className="h-8 w-8 text-slate-700 dark:text-white/60" />
                       </div>
                       <p className="text-slate-600 dark:text-white/70 text-xs">Waiting for video...</p>
                       <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
@@ -1680,7 +1689,7 @@ export default function VideoChat() {
                     : 'opacity-0 translate-y-16 pointer-events-none'
                 }`}>
                   <div className="flex items-center gap-2 sm:gap-3 lg:gap-4 bg-gradient-to-r from-background/90 via-background/80 to-background/90 backdrop-blur-xl rounded-2xl px-3 py-2 sm:px-6 sm:py-4 border border-border/50 shadow-2xl">
-                    {/* Audio and Video controls removed - always enabled */}
+                     {/* Audio and Video controls removed from camera screen - always enabled */}
                     
                     {/* Gender Selector */}
                     <QuickGenderSelector
@@ -1774,7 +1783,7 @@ export default function VideoChat() {
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="text-center">
                   <div className="w-20 h-20 bg-gradient-to-br from-gray-500/20 to-gray-600/20 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <AlertCircle className="h-10 w-10 text-slate-700 dark:text-white/60" />
+                    <VideoOff className="h-10 w-10 text-slate-700 dark:text-white/60" />
                   </div>
                   <p className="text-slate-600 dark:text-white/70 text-sm">Camera Off</p>
                 </div>

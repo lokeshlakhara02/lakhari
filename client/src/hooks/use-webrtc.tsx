@@ -417,24 +417,14 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
     
     console.log('✅ Peer connection created and set in state');
     
-    // Force state synchronization multiple times to ensure it's properly set
+    // Ensure state is properly synchronized
     setTimeout(() => {
-      console.log('🔄 Force syncing peer connection state...');
-      peerConnection.current = pc;
-      setPeerConnectionState(pc);
-    }, 50);
-    
-    setTimeout(() => {
-      console.log('🔄 Second sync of peer connection state...');
-      peerConnection.current = pc;
-      setPeerConnectionState(pc);
+      if (peerConnection.current !== pc) {
+        console.log('🔄 Re-syncing peer connection state...');
+        peerConnection.current = pc;
+        setPeerConnectionState(pc);
+      }
     }, 100);
-    
-    setTimeout(() => {
-      console.log('🔄 Final sync of peer connection state...');
-      peerConnection.current = pc;
-      setPeerConnectionState(pc);
-    }, 200);
     
     // Set up connection state handlers with reduced logging
     pc.onconnectionstatechange = () => {
@@ -1539,6 +1529,14 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
     });
   }, [peerConnectionState, connectionState, iceConnectionState, localStream, remoteStream]);
 
+  // Force peer connection state update
+  const forcePeerConnectionUpdate = useCallback(() => {
+    if (peerConnection.current && !peerConnectionState) {
+      console.log('🔄 Force updating peer connection state...');
+      setPeerConnectionState(peerConnection.current);
+    }
+  }, [peerConnectionState]);
+
   return {
     localStream,
     remoteStream,
@@ -1569,6 +1567,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
     hasPermissions,
     peerConnection: peerConnectionState,
     debugPeerConnection,
+    forcePeerConnectionUpdate,
     // Advanced features
     connectionHealth,
     isAdapting,
