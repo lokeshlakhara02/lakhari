@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { useWebSocket } from '@/hooks/use-websocket';
 import { useWebRTC } from '@/hooks/use-webrtc';
 import { 
-  Phone, Maximize, Mic, MicOff, Video, VideoOff, 
+  Phone, Maximize, 
   SkipForward, Send, Heart, AlertCircle, ChevronDown, 
   Wifi, WifiOff, RefreshCw, CheckCircle, XCircle, Pin, PinOff
 } from 'lucide-react';
@@ -183,8 +183,6 @@ export default function VideoChat() {
     isReconnecting: webrtcIsReconnecting,
     negotiationNeeded,
     startLocalStream,
-    toggleVideo,
-    toggleAudio,
     endCall,
     createOffer,
     createAnswer,
@@ -634,10 +632,21 @@ export default function VideoChat() {
         while (!peerConnection && attempts < maxAttempts) {
           await new Promise(resolve => setTimeout(resolve, 100));
           attempts++;
+          
+          // Debug every 50 attempts
+          if (attempts % 50 === 0) {
+            console.log(`🔍 Waiting for peer connection... attempt ${attempts}/${maxAttempts}`);
+            if (debugPeerConnection) {
+              debugPeerConnection();
+            }
+          }
         }
         
         if (!peerConnection) {
           console.warn('⚠️ Peer connection not initialized after timeout, will retry when match is found');
+          if (debugPeerConnection) {
+            debugPeerConnection();
+          }
           return;
         }
         
@@ -732,10 +741,21 @@ export default function VideoChat() {
           while (!peerConnection && attempts < maxAttempts) {
             await new Promise(resolve => setTimeout(resolve, 100));
             attempts++;
+            
+            // Debug every 25 attempts
+            if (attempts % 25 === 0) {
+              console.log(`🔍 Waiting for peer connection in match... attempt ${attempts}/${maxAttempts}`);
+              if (debugPeerConnection) {
+                debugPeerConnection();
+              }
+            }
           }
           
           if (!peerConnection) {
             console.error('❌ Peer connection not initialized after extended timeout');
+            if (debugPeerConnection) {
+              debugPeerConnection();
+            }
             addError({
               type: 'webrtc',
               message: 'Peer connection not initialized after extended timeout',
@@ -1583,7 +1603,7 @@ export default function VideoChat() {
                     <div className="text-center px-4 max-w-xs mx-auto">
                       <div className="relative">
                         <div className="w-16 h-16 bg-gradient-to-br from-blue-500/20 to-purple-500/20 rounded-full flex items-center justify-center mx-auto mb-3 animate-pulse">
-                          <VideoOff className="h-8 w-8 text-slate-700 dark:text-white/60" />
+                          <AlertCircle className="h-8 w-8 text-slate-700 dark:text-white/60" />
                         </div>
                         <div className="absolute inset-0 w-16 h-16 bg-gradient-to-br from-blue-500/10 to-purple-500/10 rounded-full mx-auto animate-ping" />
                       </div>
@@ -1620,7 +1640,7 @@ export default function VideoChat() {
                   <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-200/90 to-slate-300/90 dark:from-slate-800/90 dark:to-slate-900/90 backdrop-blur-sm">
                     <div className="text-center">
                       <div className="w-16 h-16 bg-gradient-to-br from-green-500/20 to-blue-500/20 rounded-full flex items-center justify-center mx-auto mb-3">
-                        <VideoOff className="h-8 w-8 text-slate-700 dark:text-white/60" />
+                        <AlertCircle className="h-8 w-8 text-slate-700 dark:text-white/60" />
                       </div>
                       <p className="text-slate-600 dark:text-white/70 text-xs">Waiting for video...</p>
                       <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
@@ -1660,55 +1680,7 @@ export default function VideoChat() {
                     : 'opacity-0 translate-y-16 pointer-events-none'
                 }`}>
                   <div className="flex items-center gap-2 sm:gap-3 lg:gap-4 bg-gradient-to-r from-background/90 via-background/80 to-background/90 backdrop-blur-xl rounded-2xl px-3 py-2 sm:px-6 sm:py-4 border border-border/50 shadow-2xl">
-                    {/* Audio Toggle */}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={toggleAudio}
-                      disabled={!mediaAccessStatus.hasAudio}
-                      className={`group relative w-10 h-10 sm:w-14 sm:h-14 rounded-full transition-all duration-300 hover:scale-110 ${
-                        !mediaAccessStatus.hasAudio
-                          ? 'bg-gray-500/20 text-gray-400 cursor-not-allowed'
-                          : isAudioEnabled 
-                            ? 'bg-green-500/20 hover:bg-green-500/30 text-green-400 shadow-lg shadow-green-500/20' 
-                            : 'bg-red-500/20 hover:bg-red-500/30 text-red-400 shadow-lg shadow-red-500/20'
-                      }`}
-                      data-testid="button-toggle-audio"
-                    >
-                      <div className="absolute inset-0 rounded-full bg-gradient-to-br from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                      {!mediaAccessStatus.hasAudio ? (
-                        <MicOff className="relative h-4 w-4 sm:h-6 sm:w-6" />
-                      ) : isAudioEnabled ? (
-                        <Mic className="relative h-4 w-4 sm:h-6 sm:w-6" />
-                      ) : (
-                        <MicOff className="relative h-4 w-4 sm:h-6 sm:w-6" />
-                      )}
-                    </Button>
-                    
-                    {/* Video Toggle */}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={toggleVideo}
-                      disabled={!mediaAccessStatus.hasVideo}
-                      className={`group relative w-10 h-10 sm:w-14 sm:h-14 rounded-full transition-all duration-300 hover:scale-110 ${
-                        !mediaAccessStatus.hasVideo
-                          ? 'bg-gray-500/20 text-gray-400 cursor-not-allowed'
-                          : isVideoEnabled 
-                            ? 'bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 shadow-lg shadow-blue-500/20' 
-                            : 'bg-red-500/20 hover:bg-red-500/30 text-red-400 shadow-lg shadow-red-500/20'
-                      }`}
-                      data-testid="button-toggle-video"
-                    >
-                      <div className="absolute inset-0 rounded-full bg-gradient-to-br from-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                      {!mediaAccessStatus.hasVideo ? (
-                        <VideoOff className="relative h-4 w-4 sm:h-6 sm:w-6" />
-                      ) : isVideoEnabled ? (
-                        <Video className="relative h-4 w-4 sm:h-6 sm:w-6" />
-                      ) : (
-                        <VideoOff className="relative h-4 w-4 sm:h-6 sm:w-6" />
-                      )}
-                    </Button>
+                    {/* Audio and Video controls removed - always enabled */}
                     
                     {/* Gender Selector */}
                     <QuickGenderSelector
@@ -1802,7 +1774,7 @@ export default function VideoChat() {
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="text-center">
                   <div className="w-20 h-20 bg-gradient-to-br from-gray-500/20 to-gray-600/20 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <VideoOff className="h-10 w-10 text-slate-700 dark:text-white/60" />
+                    <AlertCircle className="h-10 w-10 text-slate-700 dark:text-white/60" />
                   </div>
                   <p className="text-slate-600 dark:text-white/70 text-sm">Camera Off</p>
                 </div>

@@ -417,14 +417,24 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
     
     console.log('✅ Peer connection created and set in state');
     
-    // Ensure state is properly synchronized
+    // Force state synchronization multiple times to ensure it's properly set
     setTimeout(() => {
-      if (peerConnection.current !== pc) {
-        console.log('🔄 Re-syncing peer connection state...');
-        peerConnection.current = pc;
-        setPeerConnectionState(pc);
-      }
+      console.log('🔄 Force syncing peer connection state...');
+      peerConnection.current = pc;
+      setPeerConnectionState(pc);
+    }, 50);
+    
+    setTimeout(() => {
+      console.log('🔄 Second sync of peer connection state...');
+      peerConnection.current = pc;
+      setPeerConnectionState(pc);
     }, 100);
+    
+    setTimeout(() => {
+      console.log('🔄 Final sync of peer connection state...');
+      peerConnection.current = pc;
+      setPeerConnectionState(pc);
+    }, 200);
     
     // Set up connection state handlers with reduced logging
     pc.onconnectionstatechange = () => {
