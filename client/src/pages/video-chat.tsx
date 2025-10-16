@@ -82,13 +82,17 @@ export default function VideoChat() {
   const [connectionDiagnostics, setConnectionDiagnostics] = useState<any>(null);
   const [componentMounted, setComponentMounted] = useState(false);
 
-  // Component mount effect
+  // Component mount effect - prevent multiple initializations
   useEffect(() => {
-    setComponentMounted(true);
+    if (!componentMounted) {
+      setComponentMounted(true);
+      console.log('🔄 VideoChat component mounted');
+    }
     return () => {
+      console.log('🧹 VideoChat component unmounting, cleaning up...');
       setComponentMounted(false);
     };
-  }, []);
+  }, [componentMounted]);
   
   // Control bar visibility state
   const [isControlBarVisible, setIsControlBarVisible] = useState(true);
@@ -206,10 +210,11 @@ export default function VideoChat() {
         
         // Set video properties for better playback
         const videoElement = remoteVideoRef.current;
-        videoElement.muted = true; // Mute to allow autoplay
+        videoElement.muted = false; // DO NOT mute - we need to hear the remote user
         videoElement.playsInline = true;
         videoElement.controls = false;
         videoElement.autoplay = true;
+        videoElement.volume = 1.0; // Ensure volume is at maximum
         
         // Set the stream immediately
         videoElement.srcObject = stream;
@@ -490,6 +495,7 @@ export default function VideoChat() {
     };
 
     if (isMounted && !initializationAttempted && componentMounted) {
+      console.log('🔄 Initializing media access...');
       initializeMedia();
     }
 
@@ -571,10 +577,11 @@ export default function VideoChat() {
       });
       
       // Set video properties for better playback
-      remoteVideo.muted = true; // Mute to allow autoplay
+      remoteVideo.muted = false; // DO NOT mute - we need to hear the remote user
       remoteVideo.playsInline = true;
       remoteVideo.controls = false;
       remoteVideo.autoplay = true;
+      remoteVideo.volume = 1.0; // Ensure volume is at maximum
       
       // Only set srcObject if it's different to prevent flickering
       if (remoteVideo.srcObject !== remoteStream) {
@@ -827,6 +834,12 @@ export default function VideoChat() {
 
     console.log('🔗 WebSocket connected, initializing video chat...');
 
+    // Prevent multiple WebSocket connections
+    if (session) {
+      console.log('🔄 Session already exists, skipping initialization...');
+      return;
+    }
+
     // Try to recover existing session first
     const savedSessionId = sessionStorage.getItem('currentSessionId');
     const savedSessionType = sessionStorage.getItem('currentSessionType');
@@ -855,7 +868,7 @@ export default function VideoChat() {
         sendMessage(findMatchMessage);
       }, 100);
     }
-  }, [isConnected, userId, sendMessage, userGender]); // Include userGender to handle changes
+  }, [isConnected, userId, sendMessage, userGender, session]); // Add session dependency to prevent duplicates
 
   // Stable message handlers using useCallback
   const handleWaitingForMatch = useCallback(() => {
@@ -912,8 +925,11 @@ export default function VideoChat() {
         const maxRetries = 50; // Increased retries for better reliability
         
         while (!peerConnection && retryCount < maxRetries) {
-          console.log(`⏰ Waiting for peer connection... (${retryCount + 1}/${maxRetries})`);
-          await new Promise(resolve => setTimeout(resolve, 300)); // Increased wait time
+          // Only log every 10 attempts to reduce console spam
+          if (retryCount % 10 === 0 || retryCount === maxRetries - 1) {
+            console.log(`⏰ Waiting for peer connection... (${retryCount + 1}/${maxRetries})`);
+          }
+          await new Promise(resolve => setTimeout(resolve, 300));
           retryCount++;
         }
 
@@ -1276,16 +1292,21 @@ export default function VideoChat() {
         isFromPartner: data.message.senderId !== userId
       });
       
-      const message: Message = {
-        id: data.message.id || Date.now().toString(),
-        content: data.message.content,
-        senderId: data.message.senderId || 'unknown',
-        timestamp: new Date(data.message.timestamp || Date.now()),
-        isOwn: false, // Always false for received messages
-        attachments: data.message.attachments || [],
-        hasEmoji: data.message.hasEmoji || false,
-      };
-      setTextMessages(prev => [...prev, message]);
+      // Only add message if it's from another user
+      if (data.message.senderId !== userId) {
+        const message: Message = {
+          id: data.message.id || Date.now().toString(),
+          content: data.message.content,
+          senderId: data.message.senderId || 'unknown',
+          timestamp: new Date(data.message.timestamp || Date.now()),
+          isOwn: false, // Always false for received messages
+          attachments: data.message.attachments || [],
+          hasEmoji: data.message.hasEmoji || false,
+        };
+        setTextMessages(prev => [...prev, message]);
+      } else {
+        console.log('🔄 Ignoring own message in message_received event');
+      }
       });
 
       onMessage('message_sent', (data: any) => {
@@ -1297,16 +1318,21 @@ export default function VideoChat() {
         isOwn: data.message.senderId === userId
       });
       
-      const message: Message = {
-        id: data.message.id || Date.now().toString(),
-        content: data.message.content,
-        senderId: data.message.senderId || userId || 'self',
-        timestamp: new Date(data.message.timestamp || Date.now()),
-        isOwn: data.message.senderId === userId, // Only mark as own if senderId matches current userId
-        attachments: data.message.attachments || [],
-        hasEmoji: data.message.hasEmoji || false,
-      };
-      setTextMessages(prev => [...prev, message]);
+      // Only add message if it's from the current user
+      if (data.message.senderId === userId) {
+        const message: Message = {
+          id: data.message.id || Date.now().toString(),
+          content: data.message.content,
+          senderId: data.message.senderId || userId || 'self',
+          timestamp: new Date(data.message.timestamp || Date.now()),
+          isOwn: true, // Always true for sent messages
+          attachments: data.message.attachments || [],
+          hasEmoji: data.message.hasEmoji || false,
+        };
+        setTextMessages(prev => [...prev, message]);
+      } else {
+        console.log('🔄 Ignoring message from other user in message_sent event');
+      }
       });
       
       onMessage('message_delivered', (data: any) => {
@@ -1506,6 +1532,12 @@ export default function VideoChat() {
   const handleNextStranger = useCallback(() => {
     console.log('🔄 Next stranger clicked - current status:', connectionStatus);
     
+    // End current call if connected
+    if (connectionStatus === 'connected') {
+      console.log('📞 Ending current call...');
+      endCall();
+    }
+    
     // Clear any existing session storage
     sessionStorage.removeItem('currentSessionId');
     sessionStorage.removeItem('currentSessionType');
@@ -1532,6 +1564,17 @@ export default function VideoChat() {
         gender,
         interests,
       });
+      
+      // Also send find_match after a delay
+      setTimeout(() => {
+        console.log('🎯 Sending find_match after next_stranger');
+        sendMessage({
+          type: 'find_match',
+          chatType: 'video',
+          interests,
+          gender,
+        });
+      }, 1000);
     } else {
       // If no active session, just start looking for a new match
       console.log('🎯 Sending find_match message for new connection');
@@ -1542,12 +1585,12 @@ export default function VideoChat() {
         gender,
       };
       
-      // Add a small delay to ensure the previous session is properly cleared
+      // Add a longer delay to ensure proper cleanup
       setTimeout(() => {
         sendMessage(findMatchMessage);
-      }, 200);
+      }, 1000);
     }
-  }, [connectionStatus, session, isConnected, sendMessage, userGender]);
+  }, [connectionStatus, session, isConnected, sendMessage, userGender, endCall]);
 
   const handleSendTextMessage = (content: string, attachments?: Attachment[]) => {
     if ((!content.trim() && !attachments?.length) || !session) return;
