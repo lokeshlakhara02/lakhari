@@ -221,6 +221,11 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
       rtcpMuxPolicy: 'require',
     });
 
+    // Set the peer connection immediately
+    peerConnection.current = pc;
+    setPeerConnectionState(pc);
+    console.log('✅ Peer connection initialized and set');
+
     pc.onicecandidate = null; // Will be set by parent component
     
     // Enhanced negotiation handling
@@ -511,9 +516,6 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
         }
       }
     }, 5000); // Check every 5 seconds
-
-    peerConnection.current = pc;
-    setPeerConnectionState(pc);
     
     // If we have a local stream, add it to the new peer connection
     if (localStream) {
@@ -722,7 +724,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
       // Enhanced peer connection setup
       if (!peerConnection.current) {
         console.log('Initializing new peer connection');
-        const pc = initializePeerConnection();
+        initializePeerConnection();
         
         // Wait a moment for the peer connection to be created
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -815,8 +817,24 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
   }, [localStream]);
 
   const createOffer = useCallback(async () => {
+    // Wait for peer connection to be ready with timeout
+    let attempts = 0;
+    const maxAttempts = 20;
+    
+    while (!peerConnection.current && attempts < maxAttempts) {
+      console.log(`Waiting for peer connection... (${attempts + 1}/${maxAttempts})`);
+      await new Promise(resolve => setTimeout(resolve, 100));
+      attempts++;
+    }
+    
     if (!peerConnection.current) {
-      console.error('Cannot create offer: no peer connection');
+      console.error('Cannot create offer: no peer connection after waiting');
+      const webRTCError = createWebRTCError(
+        'Peer connection not ready for offer creation',
+        'create_offer',
+        'NO_PEER_CONNECTION'
+      );
+      setLastError(webRTCError);
       return null;
     }
 
@@ -1142,6 +1160,15 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
       console.error('Error during call cleanup:', error);
     }
   }, [stopLocalStream]);
+
+  // Initialize peer connection on mount
+  useEffect(() => {
+    // Initialize peer connection immediately when hook mounts
+    if (!peerConnection.current) {
+      console.log('🔄 Initializing peer connection on mount');
+      initializePeerConnection();
+    }
+  }, [initializePeerConnection]);
 
   // Enhanced cleanup on unmount
   useEffect(() => {

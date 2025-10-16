@@ -685,11 +685,11 @@ export default function VideoChat() {
 
         // Wait for peer connection to be ready
         let retryCount = 0;
-        const maxRetries = 20; // Increased retries
+        const maxRetries = 30; // Increased retries for better reliability
         
         while (!peerConnection && retryCount < maxRetries) {
           console.log(`⏰ Waiting for peer connection... (${retryCount + 1}/${maxRetries})`);
-          await new Promise(resolve => setTimeout(resolve, 250)); // Reduced wait time
+          await new Promise(resolve => setTimeout(resolve, 200)); // Reduced wait time
           retryCount++;
         }
 
@@ -705,22 +705,24 @@ export default function VideoChat() {
           return;
         }
 
+        console.log('✅ Peer connection is ready, proceeding with offer creation');
+
         // Create WebRTC offer
         if (createOffer && sendMessage) {
           try {
             console.log('🎯 Creating WebRTC offer...');
-          const offer = await createOffer();
-          if (offer) {
+            const offer = await createOffer();
+            if (offer) {
               console.log('✅ WebRTC offer created, sending...');
-            sendMessage({
-              type: 'webrtc_offer',
-              sessionId: data.sessionId,
-              offer,
-            });
+              sendMessage({
+                type: 'webrtc_offer',
+                sessionId: data.sessionId,
+                offer,
+              });
             } else {
               throw new Error('Failed to create offer - returned null');
-          }
-        } catch (error) {
+            }
+          } catch (error) {
             console.error('❌ Failed to create WebRTC offer:', error);
             addError({
               type: 'webrtc',
@@ -728,6 +730,13 @@ export default function VideoChat() {
               recoverable: true
             });
           }
+        } else {
+          console.error('❌ Missing createOffer function or sendMessage function');
+          addError({
+            type: 'webrtc',
+            message: 'Missing required functions for WebRTC offer creation',
+            recoverable: true
+          });
         }
     } catch (error) {
       console.error('Error in handleMatchFound:', error);
