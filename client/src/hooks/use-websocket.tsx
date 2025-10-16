@@ -103,12 +103,10 @@ export function useWebSocket() {
   const connect = useCallback(async () => {
     // Prevent multiple simultaneous connection attempts
     if (isConnectingRef.current || isConnected) {
-      console.log('WebSocket already connecting or connected, skipping');
       return null;
     }
 
     if (reconnectAttempts >= connectionConfig.current.maxReconnectAttempts) {
-      console.log('Max reconnection attempts reached');
       const error = createWebSocketError(
         'Maximum reconnection attempts exceeded',
         'MAX_RECONNECT_ATTEMPTS',
@@ -124,11 +122,9 @@ export function useWebSocket() {
     setIsConnecting(true);
     setConnectionError(null);
     
-    console.log('Starting WebSocket connection attempt...');
 
     // Clear any existing connections first
     if (hybridConnection.current) {
-      console.log('Closing existing hybrid connection');
       hybridConnection.current.disconnect();
     }
 
@@ -179,13 +175,11 @@ export function useWebSocket() {
       
       // Enhanced message handlers with metrics
       hybridConnection.current.on('user_joined', (message) => {
-        console.log('User joined message received:', message);
         setUserId(message.userId);
         setConnectionMetrics(prev => ({ ...prev, messagesReceived: prev.messagesReceived + 1 }));
       });
       
       hybridConnection.current.on('heartbeat_ack', (message) => {
-        console.log('Heartbeat ack received:', message);
         setLastHeartbeat(new Date());
         setConnectionQuality('good');
         setConnectionMetrics(prev => ({ ...prev, messagesReceived: prev.messagesReceived + 1 }));
@@ -356,7 +350,6 @@ export function useWebSocket() {
   }, []);
 
   const sendMessage = useCallback((message: WebSocketMessage) => {
-    console.log('sendMessage called:', message.type, 'isConnected:', isConnected, 'hasConnection:', !!hybridConnection.current);
     
     if (!message || typeof message !== 'object') {
       console.error('Invalid message format:', message);

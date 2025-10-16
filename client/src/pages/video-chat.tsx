@@ -839,20 +839,22 @@ export default function VideoChat() {
       );
       setSharedInterests(shared);
 
-        // Initialize WebRTC if not ready
-        if (!localStream) {
-          try {
-            await startLocalStream(true, true);
-          } catch (error) {
-            console.error('❌ Failed to start local stream:', error);
-            addError({
-              type: 'webrtc',
-              message: `Failed to start local stream: ${error instanceof Error ? error.message : 'Unknown error'}`,
-              recoverable: true
-            });
-            return;
-          }
+      // CRITICAL: Initialize WebRTC peer connection immediately
+      if (!peerConnection) {
+        // Force peer connection initialization
+        try {
+          // This should trigger the peer connection creation
+          await startLocalStream(true, true);
+        } catch (error) {
+          console.error('❌ Failed to initialize WebRTC:', error);
+          addError({
+            type: 'webrtc',
+            message: `Failed to initialize WebRTC: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            recoverable: true
+          });
+          return;
         }
+      }
 
         // Wait for peer connection to be ready
         let retryCount = 0;
@@ -861,7 +863,6 @@ export default function VideoChat() {
         while (!peerConnection && retryCount < maxRetries) {
           // Only log in development mode to reduce Railway rate limits
           if (process.env.NODE_ENV === 'development' && (retryCount % 10 === 0 || retryCount === maxRetries - 1)) {
-            console.log('Waiting for peer connection...', retryCount);
           }
           await new Promise(resolve => setTimeout(resolve, 300));
           retryCount++;
@@ -941,6 +942,21 @@ export default function VideoChat() {
   }, [peerConnection, createOffer, sendMessage, addError]);
 
   const handleWebRTCOffer = useCallback(async (data: any) => {
+    // Ensure peer connection is ready before handling offer
+    if (!peerConnection) {
+      try {
+        await startLocalStream(true, true);
+      } catch (error) {
+        console.error('❌ Failed to initialize peer connection for offer:', error);
+        addError({
+          type: 'webrtc',
+          message: 'Failed to initialize peer connection for WebRTC offer',
+          recoverable: true
+        });
+        return;
+      }
+    }
+
     const pc = peerConnection;
     if (!pc || !createAnswer || !sendMessage || !data?.offer) {
       addError({
@@ -1055,21 +1071,25 @@ export default function VideoChat() {
   }, [handleAnswer, addError]);
 
   const handleIceCandidate = useCallback(async (data: any) => {
-    if (!addIceCandidate || !data?.candidate) {
-      // Only log in development mode to reduce Railway rate limits
-      if (process.env.NODE_ENV === 'development') {
-        console.warn('Cannot handle ICE candidate: missing addIceCandidate function or candidate data');
+    // Ensure peer connection is ready before handling ICE candidate
+    if (!peerConnection) {
+      try {
+        await startLocalStream(true, true);
+      } catch (error) {
+        console.error('❌ Failed to initialize peer connection for ICE candidate:', error);
+        return;
       }
+    }
+
+    if (!addIceCandidate || !data?.candidate) {
+      console.warn('Cannot handle ICE candidate: missing addIceCandidate function or candidate data');
       return;
     }
     
-      try {
-        await addIceCandidate(data.candidate);
-      } catch (error) {
-        // Only log in development mode to reduce Railway rate limits
-        if (process.env.NODE_ENV === 'development') {
-          console.error('Failed to add ICE candidate:', error);
-        }
+    try {
+      await addIceCandidate(data.candidate);
+    } catch (error) {
+      console.error('Failed to add ICE candidate:', error);
         // ICE candidate errors are usually not critical, but log them for debugging
         if (error instanceof Error && !error.message.includes('duplicate')) {
           addError({
@@ -1079,7 +1099,7 @@ export default function VideoChat() {
           });
         }
       }
-  }, [addIceCandidate, addError]);
+  }, [addIceCandidate, addError, peerConnection, startLocalStream]);
 
   // Handle sending ICE candidates when they are generated
   useEffect(() => {
