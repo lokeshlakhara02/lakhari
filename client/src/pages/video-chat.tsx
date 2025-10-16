@@ -769,12 +769,45 @@ export default function VideoChat() {
     };
   }, [isConnected, session, addError]);
 
-  // WebSocket message handlers - only set up once
+  // CRITICAL: Initialize WebRTC and camera immediately when component mounts
   useEffect(() => {
     if (!isConnected || !userId) {
       return;
     }
 
+    // Initialize WebRTC and camera immediately
+    const initializeWebRTC = async () => {
+      try {
+        console.log('🎥 Initializing camera and WebRTC for video chat...');
+        await startLocalStream(true, true);
+        console.log('✅ Camera and WebRTC initialized successfully');
+        
+        // Wait a bit for peer connection to be ready
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Verify peer connection is ready
+        if (!peerConnection) {
+          console.error('❌ Peer connection not ready after initialization');
+          addError({
+            type: 'webrtc',
+            message: 'Peer connection not ready after initialization',
+            recoverable: true
+          });
+        } else {
+          console.log('✅ Peer connection is ready');
+        }
+      } catch (error) {
+        console.error('❌ Failed to initialize camera/WebRTC:', error);
+        addError({
+          type: 'webrtc',
+          message: `Failed to initialize camera: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          recoverable: true
+        });
+      }
+    };
+
+    // Initialize immediately
+    initializeWebRTC();
 
     // Prevent multiple WebSocket connections
     if (session) {
@@ -807,7 +840,7 @@ export default function VideoChat() {
         sendMessage(findMatchMessage);
       }, 100);
     }
-  }, [isConnected, userId]); // Only depend on connection state, not session to prevent re-initialization
+  }, [isConnected, userId, startLocalStream, addError, sendMessage, session, userGender]); // Include all dependencies
 
   // Stable message handlers using useCallback
   const handleWaitingForMatch = useCallback(() => {
@@ -839,12 +872,13 @@ export default function VideoChat() {
       );
       setSharedInterests(shared);
 
-      // CRITICAL: Initialize WebRTC peer connection immediately
+      // CRITICAL: Ensure WebRTC peer connection is ready
       if (!peerConnection) {
-        // Force peer connection initialization
+        console.log('🔧 Peer connection not ready, initializing...');
         try {
-          // This should trigger the peer connection creation
           await startLocalStream(true, true);
+          // Wait a bit for peer connection to be created
+          await new Promise(resolve => setTimeout(resolve, 500));
         } catch (error) {
           console.error('❌ Failed to initialize WebRTC:', error);
           addError({
@@ -854,6 +888,17 @@ export default function VideoChat() {
           });
           return;
         }
+      }
+
+      // Double-check peer connection is ready
+      if (!peerConnection) {
+        console.error('❌ Peer connection still not ready after initialization');
+        addError({
+          type: 'webrtc',
+          message: 'Peer connection not ready after initialization',
+          recoverable: true
+        });
+        return;
       }
 
         // Wait for peer connection to be ready
@@ -1484,8 +1529,10 @@ export default function VideoChat() {
     }
   };
 
-  const handleNextStranger = useCallback(() => {
-    // End current call if connected but preserve local stream to avoid camera reload
+  const handleNextStranger = useCallback(async () => {
+    console.log('🔄 Moving to next stranger - preserving camera...');
+    
+    // End current call but preserve local stream to avoid camera reload
     if (connectionStatus === 'connected') {
       endCall(true); // Pass true to preserve local stream
     }
@@ -1505,6 +1552,22 @@ export default function VideoChat() {
     
     // Reset session
     setSession(null);
+    
+    // CRITICAL: Ensure camera and WebRTC are still active
+    if (!localStream) {
+      console.log('🎥 Camera not active, reinitializing...');
+      try {
+        await startLocalStream(true, true);
+        console.log('✅ Camera reinitialized successfully');
+      } catch (error) {
+        console.error('❌ Failed to reinitialize camera:', error);
+        addError({
+          type: 'webrtc',
+          message: `Failed to reinitialize camera: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          recoverable: true
+        });
+      }
+    }
     
     if (session && isConnected) {
       // If we have an active session, end it and find a new match
@@ -1539,7 +1602,7 @@ export default function VideoChat() {
         sendMessage(findMatchMessage);
       }, 1000);
     }
-  }, [connectionStatus, session, isConnected, sendMessage, userGender, endCall]);
+  }, [connectionStatus, session, isConnected, sendMessage, userGender, endCall, localStream, startLocalStream, addError]);
 
   const handleSendTextMessage = (content: string, attachments?: Attachment[]) => {
     if ((!content.trim() && !attachments?.length) || !session) return;
