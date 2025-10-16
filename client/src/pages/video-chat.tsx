@@ -193,7 +193,8 @@ export default function VideoChat() {
     sendIceCandidate,
     checkPermissions,
     requestPermissions,
-    peerConnection
+    peerConnection,
+    debugPeerConnection
   } = useWebRTC(useCallback((stream: MediaStream) => {
     // Remote stream callback - now handled by StableCamera component
     logger.videoChatInfo('webrtc', 'Remote stream received');
@@ -629,7 +630,7 @@ export default function VideoChat() {
         
         // Wait for peer connection to be properly initialized
         let attempts = 0;
-        const maxAttempts = 100; // 10 seconds total - increased timeout
+        const maxAttempts = 150; // 15 seconds total - increased timeout
         while (!peerConnection && attempts < maxAttempts) {
           await new Promise(resolve => setTimeout(resolve, 100));
           attempts++;
@@ -639,6 +640,8 @@ export default function VideoChat() {
           console.warn('⚠️ Peer connection not initialized after timeout, will retry when match is found');
           return;
         }
+        
+        console.log('✅ Peer connection ready for video chat');
         
         console.log('✅ Camera and WebRTC initialized successfully');
         
@@ -685,6 +688,11 @@ export default function VideoChat() {
     try {
       console.log('🎉 Match found!', data);
       
+      // Debug peer connection state before proceeding
+      if (debugPeerConnection) {
+        debugPeerConnection();
+      }
+      
       const newSession = {
         id: data.sessionId,
         partnerId: data.partnerId,
@@ -720,7 +728,7 @@ export default function VideoChat() {
           
           // Wait for peer connection to be properly initialized with longer timeout
           let attempts = 0;
-          const maxAttempts = 100; // 10 seconds total - increased timeout
+          const maxAttempts = 150; // 15 seconds total - increased timeout
           while (!peerConnection && attempts < maxAttempts) {
             await new Promise(resolve => setTimeout(resolve, 100));
             attempts++;
@@ -735,6 +743,8 @@ export default function VideoChat() {
             });
             return;
           }
+          
+          console.log('✅ Peer connection ready for match handling');
           
           // Verify peer connection is in a valid state
           if (peerConnection.signalingState === 'closed') {
@@ -757,6 +767,8 @@ export default function VideoChat() {
               });
               return;
             }
+            
+            console.log('✅ Peer connection reinitialized successfully');
           }
           
           console.log('✅ Peer connection initialized successfully for match');

@@ -417,6 +417,15 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
     
     console.log('✅ Peer connection created and set in state');
     
+    // Ensure state is properly synchronized
+    setTimeout(() => {
+      if (peerConnection.current !== pc) {
+        console.log('🔄 Re-syncing peer connection state...');
+        peerConnection.current = pc;
+        setPeerConnectionState(pc);
+      }
+    }, 100);
+    
     // Set up connection state handlers with reduced logging
     pc.onconnectionstatechange = () => {
       if (process.env.NODE_ENV === 'development') {
@@ -967,7 +976,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
         
         // Wait longer for the peer connection to be created
         let attempts = 0;
-        const maxAttempts = 50; // 5 seconds total
+        const maxAttempts = 100; // 10 seconds total - increased timeout
         while (!peerConnection.current && attempts < maxAttempts) {
           await new Promise(resolve => setTimeout(resolve, 100));
           attempts++;
@@ -979,6 +988,8 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
         }
         
         console.log('✅ Peer connection initialized successfully for local stream');
+      } else {
+        console.log('✅ Peer connection already exists for local stream');
       }
       
 
@@ -1059,15 +1070,21 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
   const createOffer = useCallback(async () => {
     // Force peer connection initialization if not ready
     if (!peerConnection.current) {
+      console.log('🔗 Creating peer connection for offer...');
       initializePeerConnection();
       
       // Wait for initialization with longer timeout
       let attempts = 0;
-      const maxAttempts = 50; // 5 seconds total
+      const maxAttempts = 100; // 10 seconds total - increased timeout
       
       while (!peerConnection.current && attempts < maxAttempts) {
         await new Promise(resolve => setTimeout(resolve, 100));
         attempts++;
+      }
+      
+      if (!peerConnection.current) {
+        console.error('❌ Peer connection not ready for offer creation');
+        return null;
       }
     }
     
@@ -1457,9 +1474,19 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
     // Initialize peer connection immediately when hook mounts
     if (!peerConnection.current && !isInitialized) {
       try {
+        console.log('🔗 Initializing peer connection on mount...');
         initializePeerConnection();
         setIsInitialized(true);
-        console.log('🔗 Peer connection initialized on mount');
+        console.log('✅ Peer connection initialized on mount');
+        
+        // Verify initialization was successful
+        setTimeout(() => {
+          if (peerConnection.current) {
+            console.log('✅ Peer connection verified on mount');
+          } else {
+            console.error('❌ Peer connection initialization failed on mount');
+          }
+        }, 100);
       } catch (error) {
         console.error('❌ Failed to initialize peer connection on mount:', error);
       }
@@ -1490,6 +1517,18 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
     };
   }, []); // Empty dependency array to run only on unmount
 
+  // Debug function to check peer connection state
+  const debugPeerConnection = useCallback(() => {
+    console.log('🔍 Peer Connection Debug:', {
+      hasPeerConnection: !!peerConnection.current,
+      peerConnectionState: peerConnectionState ? 'exists' : 'null',
+      connectionState,
+      iceConnectionState,
+      localStream: !!localStream,
+      remoteStream: !!remoteStream
+    });
+  }, [peerConnectionState, connectionState, iceConnectionState, localStream, remoteStream]);
+
   return {
     localStream,
     remoteStream,
@@ -1519,6 +1558,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
     requestPermissions,
     hasPermissions,
     peerConnection: peerConnectionState,
+    debugPeerConnection,
     // Advanced features
     connectionHealth,
     isAdapting,
