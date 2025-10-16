@@ -1,6 +1,5 @@
 import { useCallback, useRef, useState, useEffect } from 'react';
 import { logger } from '@/lib/logger';
-import { connectionPool } from '@/lib/connection-pool';
 
 // Enhanced error types for better debugging
 interface WebRTCError extends Error {
@@ -370,12 +369,9 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
   }, [createWebRTCError]);
 
   const initializePeerConnection = useCallback(() => {
-    // Use connection pool to optimize resource usage
-    const connectionId = `webrtc-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    
     // Close existing connection if any
     if (peerConnection.current) {
-      connectionPool.closeConnection(peerConnection.current.toString());
+      peerConnection.current.close();
     }
 
     // Enhanced ICE servers with fallbacks
@@ -404,24 +400,17 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
       { urls: 'stun:stun.internetcalls.com' }
     ];
 
-    // Try to reuse existing connection from pool
-    let pc = connectionPool.getConnection(connectionId);
-    
-    if (!pc) {
-      pc = new RTCPeerConnection({
-        iceServers,
-        iceCandidatePoolSize: 10, // Reduced for better performance
-        iceTransportPolicy: 'all',
-        bundlePolicy: 'max-bundle',
-        rtcpMuxPolicy: 'require',
-        // sdpSemantics: 'unified-plan', // Not available in all browsers
-        // Enhanced configuration for better reliability
-        // Note: These properties may not be available in all browsers
-      });
-      
-      // Add to connection pool
-      connectionPool.createConnection(connectionId, iceServers);
-    }
+    // Create new peer connection directly (simplified approach)
+    const pc = new RTCPeerConnection({
+      iceServers,
+      iceCandidatePoolSize: 10, // Reduced for better performance
+      iceTransportPolicy: 'all',
+      bundlePolicy: 'max-bundle',
+      rtcpMuxPolicy: 'require',
+      // sdpSemantics: 'unified-plan', // Not available in all browsers
+      // Enhanced configuration for better reliability
+      // Note: These properties may not be available in all browsers
+    });
 
     // Set the peer connection immediately
     peerConnection.current = pc;

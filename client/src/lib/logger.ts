@@ -122,6 +122,19 @@ class Logger {
   videoChatInfo(type: string, message: string, data?: any) {
     this.info(`VideoChat ${type}: ${message}`, data);
   }
+
+  // Component specific logging
+  componentError(component: string, message: string, error?: any) {
+    this.error(`Component ${component}: ${message}`, error);
+  }
+
+  componentWarn(component: string, message: string, error?: any) {
+    this.warn(`Component ${component}: ${message}`, error);
+  }
+
+  componentInfo(component: string, message: string, data?: any) {
+    this.info(`Component ${component}: ${message}`, data);
+  }
 }
 
 export const logger = new Logger();
