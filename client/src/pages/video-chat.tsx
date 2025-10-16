@@ -101,7 +101,10 @@ export default function VideoChat() {
   const hideTimeoutRef = useRef<NodeJS.Timeout>();
   const mouseMoveTimeoutRef = useRef<NodeJS.Timeout>();
   
-  // Video refs are now handled by StableCamera component
+  // Video refs for direct video element access (if needed)
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const localVideoDesktopRef = useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
   // Enhanced error tracking and recovery refs
@@ -440,146 +443,13 @@ export default function VideoChat() {
     };
   }, [componentMounted]); // Add componentMounted dependency
 
-  useEffect(() => {
-    const localVideo = localVideoRef.current;
-    const localVideoDesktop = localVideoDesktopRef.current;
-    
-    // Local video effect triggered
-    
-    const updateVideoStream = (video: HTMLVideoElement | null, name: string) => {
-      if (video && localStream) {
-        // Only set srcObject if it's different to prevent flickering
-        if (video.srcObject !== localStream) {
-          video.srcObject = localStream;
-          
-          // Use a more robust play() approach
-          const playPromise = video.play();
-          if (playPromise !== undefined) {
-            playPromise.catch(error => {
-              // Ignore AbortError as it's expected when new streams are loaded
-              if (error.name !== 'AbortError' && process.env.NODE_ENV === 'development') {
-                console.error(`${name} video play error:`, error);
-              }
-            });
-          }
-        }
-      }
-    };
+  // Local video stream handling is now managed by StableCamera component
+  // No need for direct video element manipulation
 
-    // Add a small delay to prevent rapid updates
-    const timeoutId = setTimeout(() => {
-      updateVideoStream(localVideo, 'local');
-      updateVideoStream(localVideoDesktop, 'localDesktop');
-    }, 100); // 100ms delay to debounce updates
+  // Remote video stream handling is now managed by StableCamera component
+  // No need for direct video element manipulation
 
-    return () => {
-      clearTimeout(timeoutId);
-      if (localVideo && localVideo.srcObject) {
-        localVideo.srcObject = null;
-      }
-      if (localVideoDesktop && localVideoDesktop.srcObject) {
-        localVideoDesktop.srcObject = null;
-      }
-    };
-  }, [localStream]);
-
-  useEffect(() => {
-    const remoteVideo = remoteVideoRef.current;
-    
-    if (remoteVideo && remoteStream) {
-      // Set video properties for better playback
-      remoteVideo.muted = false; // DO NOT mute - we need to hear the remote user
-      remoteVideo.playsInline = true;
-      remoteVideo.controls = false;
-      remoteVideo.autoplay = true;
-      remoteVideo.volume = 1.0; // Ensure volume is at maximum
-      
-      // Only set srcObject if it's different to prevent flickering
-      if (remoteVideo.srcObject !== remoteStream) {
-        // Add a small delay to prevent rapid updates
-        const timeoutId = setTimeout(() => {
-          if (remoteVideo && remoteStream) {
-            remoteVideo.srcObject = remoteStream;
-            
-            // Force video to load and play with multiple attempts
-            const attemptPlay = (attempts = 0) => {
-              if (attempts >= 5) {
-                // Only log in development mode to reduce Railway rate limits
-                if (process.env.NODE_ENV === 'development') {
-                  console.error('Failed to play remote video after 5 attempts');
-                }
-                return;
-              }
-              
-              const playPromise = remoteVideo.play();
-              
-              if (playPromise !== undefined) {
-                playPromise.then(() => {
-                }).catch(error => {
-                  // Only log in development mode to reduce Railway rate limits
-                  if (process.env.NODE_ENV === 'development') {
-                    console.warn(`Play attempt ${attempts + 1} failed:`, error);
-                  }
-                  if (error.name !== 'AbortError') {
-                    // Retry after a short delay
-                    setTimeout(() => attemptPlay(attempts + 1), 200);
-                  }
-                });
-              }
-            };
-            
-            // Start playing after a short delay
-            setTimeout(() => attemptPlay(), 100);
-          }
-        }, 100); // 100ms delay to debounce updates
-
-        return () => {
-          clearTimeout(timeoutId);
-        };
-      } else {
-        // Force play even if stream is already set
-        const playPromise = remoteVideo.play();
-        if (playPromise !== undefined) {
-          playPromise.catch(error => {
-            if (error.name !== 'AbortError' && process.env.NODE_ENV === 'development') {
-              console.error('Remote video play error:', error);
-            }
-          });
-        }
-      }
-    } else if (remoteVideo && !remoteStream) {
-      remoteVideo.srcObject = null;
-    }
-    
-    return () => {
-      // Don't clear srcObject here as it might interfere with the callback
-    };
-  }, [remoteStream]);
-
-  // Fallback mechanism for remote video display
-  useEffect(() => {
-    if (remoteStream && remoteVideoRef.current) {
-      // Set up a periodic check to ensure video is playing
-      const videoCheckInterval = setInterval(() => {
-        const videoElement = remoteVideoRef.current;
-        if (videoElement && remoteStream && videoElement.srcObject === remoteStream) {
-          // Check if video is actually playing
-          if (videoElement.paused || videoElement.ended) {
-            videoElement.play().catch(error => {
-              // Only log in development mode to reduce Railway rate limits
-              if (process.env.NODE_ENV === 'development') {
-                console.warn('Failed to restart video:', error);
-              }
-            });
-          }
-        }
-      }, 2000); // Check every 2 seconds
-
-      return () => {
-        clearInterval(videoCheckInterval);
-      };
-    }
-  }, [remoteStream]);
+  // Video stream health monitoring is now handled by StableCamera component
 
   // Enhanced diagnostics monitoring
   useEffect(() => {
