@@ -88,11 +88,12 @@ export default function VideoChat() {
       setComponentMounted(true);
       console.log('🔄 VideoChat component mounted');
     }
+    
     return () => {
       console.log('🧹 VideoChat component unmounting, cleaning up...');
       setComponentMounted(false);
     };
-  }, [componentMounted]);
+  }, []); // Empty dependency array to prevent re-runs
   
   // Control bar visibility state
   const [isControlBarVisible, setIsControlBarVisible] = useState(true);
@@ -785,7 +786,7 @@ export default function VideoChat() {
         audioTrackEnabled: remoteStream.getAudioTracks().length > 0 ? remoteStream.getAudioTracks()[0].enabled : false
       });
     }
-  }, [connectionState, iceConnectionState, remoteStream, localStream, webrtcConnectionQuality, session, connectionStatus, isConnected]); // Remove peerConnection and sendMessage dependencies
+  }, [connectionState, iceConnectionState, remoteStream, localStream, webrtcConnectionQuality, session, connectionStatus, isConnected, peerConnection, sendMessage, recoveryInProgress, setRecoveryInProgress]); // Add all dependencies
 
   // Advanced connection diagnostics monitoring
   useEffect(() => {
@@ -868,7 +869,7 @@ export default function VideoChat() {
         sendMessage(findMatchMessage);
       }, 100);
     }
-  }, [isConnected, userId, sendMessage, userGender, session]); // Add session dependency to prevent duplicates
+  }, [isConnected, userId]); // Only depend on connection state, not session to prevent re-initialization
 
   // Stable message handlers using useCallback
   const handleWaitingForMatch = useCallback(() => {
