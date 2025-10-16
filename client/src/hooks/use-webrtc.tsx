@@ -283,63 +283,92 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
     };
 
     pc.ontrack = (event) => {
-      console.log('Track received:', event.track.kind, event.streams.length);
+      console.log('🎥 Track received:', {
+        kind: event.track.kind,
+        streams: event.streams.length,
+        trackId: event.track.id,
+        trackLabel: event.track.label,
+        trackEnabled: event.track.enabled,
+        trackReadyState: event.track.readyState
+      });
+      
       const [stream] = event.streams;
       if (stream && stream.id) {
         // Prevent duplicate stream updates
         if (lastStreamId.current === stream.id) {
+          console.log('🔄 Duplicate stream detected, ignoring');
           return;
         }
         
         // Enhanced stream validation
-        const hasVideo = stream.getVideoTracks().length > 0;
-        const hasAudio = stream.getAudioTracks().length > 0;
+        const videoTracks = stream.getVideoTracks();
+        const audioTracks = stream.getAudioTracks();
+        const hasVideo = videoTracks.length > 0;
+        const hasAudio = audioTracks.length > 0;
+        
+        console.log('📊 Stream validation:', {
+          streamId: stream.id,
+          videoTracks: videoTracks.length,
+          audioTracks: audioTracks.length,
+          hasVideo,
+          hasAudio
+        });
         
         if (!hasVideo && !hasAudio) {
-          console.warn('Received empty stream, ignoring');
+          console.warn('⚠️ Received empty stream, ignoring');
           return;
         }
         
-        // Debounce stream updates to prevent flickering
+        // Clear any existing timeout
         if (streamUpdateTimeout.current) {
           clearTimeout(streamUpdateTimeout.current);
         }
         
-        streamUpdateTimeout.current = setTimeout(() => {
-          lastStreamId.current = stream.id;
-          setRemoteStream(stream);
-          
-          // Enhanced callback with error handling
-          if (onRemoteStream) {
-            try {
-              onRemoteStream(stream);
-            } catch (error) {
-              console.error('Error in onRemoteStream callback:', error);
-            }
+        // Set remote stream immediately for better responsiveness
+        console.log('✅ Setting remote stream immediately');
+        lastStreamId.current = stream.id;
+        setRemoteStream(stream);
+        
+        // Enhanced callback with error handling
+        if (onRemoteStream) {
+          try {
+            console.log('🔄 Calling onRemoteStream callback');
+            onRemoteStream(stream);
+          } catch (error) {
+            console.error('❌ Error in onRemoteStream callback:', error);
           }
-          
-          console.log('Remote stream set successfully:', {
-            streamId: stream.id,
-            videoTracks: stream.getVideoTracks().length,
-            audioTracks: stream.getAudioTracks().length
-          });
-        }, 200);
+        }
+        
+        console.log('🎉 Remote stream set successfully:', {
+          streamId: stream.id,
+          videoTracks: videoTracks.length,
+          audioTracks: audioTracks.length,
+          videoTrackEnabled: videoTracks.length > 0 ? videoTracks[0].enabled : false,
+          audioTrackEnabled: audioTracks.length > 0 ? audioTracks[0].enabled : false
+        });
+      } else {
+        console.warn('⚠️ Invalid stream received:', stream);
       }
     };
 
     pc.oniceconnectionstatechange = () => {
-      console.log('ICE connection state changed:', pc.iceConnectionState);
+      console.log('🔗 ICE connection state changed:', {
+        from: iceConnectionState,
+        to: pc.iceConnectionState,
+        timestamp: new Date().toISOString()
+      });
       
       // Only update state if it's actually changing to prevent flickering
       setIceConnectionState(prevState => {
         if (prevState !== pc.iceConnectionState) {
+          console.log('✅ ICE connection state updated:', pc.iceConnectionState);
           return pc.iceConnectionState;
         }
         return prevState;
       });
       
       if (pc.iceConnectionState === 'failed') {
-        console.warn('ICE connection failed, attempting restart');
+        console.warn('❌ ICE connection failed, attempting restart');
         setConnectionQuality('poor');
         setLastError(createWebRTCError('ICE connection failed', 'ice_connection', 'ICE_FAILED'));
         
@@ -366,29 +395,37 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
           }, 2000);
         });
       } else if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
-        console.log('ICE connection established successfully');
+        console.log('🎉 ICE connection established successfully');
         setConnectionQuality('good');
         setLastError(null);
         setRetryCount(0);
       } else if (pc.iceConnectionState === 'disconnected') {
-        console.warn('ICE connection disconnected');
+        console.warn('⚠️ ICE connection disconnected');
         setConnectionQuality('poor');
+      } else if (pc.iceConnectionState === 'checking') {
+        console.log('🔍 ICE connection checking...');
+        setConnectionQuality('unknown');
       }
     };
 
     pc.onconnectionstatechange = () => {
-      console.log('Peer connection state changed:', pc.connectionState);
+      console.log('🔗 Peer connection state changed:', {
+        from: connectionState,
+        to: pc.connectionState,
+        timestamp: new Date().toISOString()
+      });
       
       // Only update state if it's actually changing to prevent flickering
       setConnectionState(prevState => {
         if (prevState !== pc.connectionState) {
+          console.log('✅ Peer connection state updated:', pc.connectionState);
           return pc.connectionState;
         }
         return prevState;
       });
       
       if (pc.connectionState === 'failed') {
-        console.error('Peer connection failed');
+        console.error('❌ Peer connection failed');
         setConnectionQuality('poor');
         setRemoteStream(null);
         setLastError(createWebRTCError('Peer connection failed', 'peer_connection', 'CONNECTION_FAILED'));
@@ -405,7 +442,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
           setIsReconnecting(false);
         }, 3000);
       } else if (pc.connectionState === 'connected') {
-        console.log('Peer connection established successfully');
+        console.log('🎉 Peer connection established successfully');
         setConnectionQuality('good');
         setLastError(null);
         setRetryCount(0);
@@ -416,10 +453,10 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void) {
           clearTimeout(negotiationTimeout.current);
         }
       } else if (pc.connectionState === 'connecting') {
-        console.log('Peer connection connecting...');
+        console.log('🔍 Peer connection connecting...');
         setConnectionQuality('unknown');
       } else if (pc.connectionState === 'disconnected') {
-        console.warn('Peer connection disconnected');
+        console.warn('⚠️ Peer connection disconnected');
         setConnectionQuality('poor');
       }
     };

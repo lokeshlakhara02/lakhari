@@ -174,37 +174,57 @@ export default function VideoChat() {
     peerConnection
   } = useWebRTC(useCallback((stream) => {
     // Enhanced remote stream callback with error handling
-    console.log('Remote stream received in callback:', stream);
+    console.log('🎥 Remote stream received in callback:', {
+      streamId: stream.id,
+      videoTracks: stream.getVideoTracks().length,
+      audioTracks: stream.getAudioTracks().length,
+      videoElement: !!remoteVideoRef.current
+    });
+    
     try {
       if (remoteVideoRef.current && stream) {
-        console.log('Setting remote stream directly in callback');
+        console.log('✅ Setting remote stream directly in callback');
         
         // Clear any existing timeout to prevent play interruption
         if (remoteVideoPlayTimeoutRef.current) {
           clearTimeout(remoteVideoPlayTimeoutRef.current);
         }
         
+        // Set the stream immediately
         remoteVideoRef.current.srcObject = stream;
+        console.log('📺 Stream set on video element');
         
         // Use a small delay to ensure the video element is ready
         remoteVideoPlayTimeoutRef.current = setTimeout(() => {
           if (remoteVideoRef.current && remoteVideoRef.current.srcObject === stream) {
-            remoteVideoRef.current.play().catch(error => {
-              // Only log errors that aren't play interruption
-              if (error.name !== 'AbortError') {
-                console.error('Error playing remote video in callback:', error);
-                addError({
-                  type: 'webrtc',
-                  message: `Failed to play remote video: ${error.message}`,
-                  recoverable: true
-                });
-              }
-            });
+            console.log('▶️ Attempting to play remote video');
+            const playPromise = remoteVideoRef.current.play();
+            
+            if (playPromise !== undefined) {
+              playPromise.then(() => {
+                console.log('✅ Remote video playing successfully');
+              }).catch(error => {
+                // Only log errors that aren't play interruption
+                if (error.name !== 'AbortError') {
+                  console.error('❌ Error playing remote video in callback:', error);
+                  addError({
+                    type: 'webrtc',
+                    message: `Failed to play remote video: ${error.message}`,
+                    recoverable: true
+                  });
+                }
+              });
+            }
           }
         }, 100);
+      } else {
+        console.warn('⚠️ Remote video element or stream not available:', {
+          videoElement: !!remoteVideoRef.current,
+          stream: !!stream
+        });
       }
     } catch (error) {
-      console.error('Error in remote stream callback:', error);
+      console.error('❌ Error in remote stream callback:', error);
       addError({
         type: 'webrtc',
         message: `Remote stream callback error: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -496,20 +516,32 @@ export default function VideoChat() {
     const remoteVideo = remoteVideoRef.current;
     
     if (remoteVideo && remoteStream) {
+      console.log('🔄 Remote stream useEffect triggered:', {
+        streamId: remoteStream.id,
+        videoTracks: remoteStream.getVideoTracks().length,
+        audioTracks: remoteStream.getAudioTracks().length,
+        currentSrcObject: !!remoteVideo.srcObject
+      });
+      
       // Only set srcObject if it's different to prevent flickering
       if (remoteVideo.srcObject !== remoteStream) {
+        console.log('📺 Setting remote stream in useEffect');
+        
         // Add a small delay to prevent rapid updates
         const timeoutId = setTimeout(() => {
           if (remoteVideo && remoteStream) {
             remoteVideo.srcObject = remoteStream;
+            console.log('✅ Remote stream set in useEffect');
             
             // Use a more robust play() approach
             const playPromise = remoteVideo.play();
             if (playPromise !== undefined) {
-              playPromise.catch(error => {
+              playPromise.then(() => {
+                console.log('✅ Remote video playing from useEffect');
+              }).catch(error => {
                 // Ignore AbortError as it's expected when new streams are loaded
                 if (error.name !== 'AbortError') {
-                  console.error('❌ Remote video play error:', error);
+                  console.error('❌ Remote video play error from useEffect:', error);
                 }
               });
             }
@@ -519,13 +551,16 @@ export default function VideoChat() {
         return () => {
           clearTimeout(timeoutId);
         };
+      } else {
+        console.log('🔄 Remote stream already set, skipping');
       }
+    } else if (remoteVideo && !remoteStream) {
+      console.log('🔄 No remote stream, clearing video element');
+      remoteVideo.srcObject = null;
     }
     
     return () => {
-      if (remoteVideo && remoteVideo.srcObject) {
-        remoteVideo.srcObject = null;
-      }
+      // Don't clear srcObject here as it might interfere with the callback
     };
   }, [remoteStream]);
 
@@ -575,6 +610,23 @@ export default function VideoChat() {
       });
     }
   }, [wsConnectionError, webrtcLastError, webrtcPermissionError, addError]);
+
+  // Monitor WebRTC connection states for debugging
+  useEffect(() => {
+    console.log('🔍 WebRTC State Update:', {
+      connectionState,
+      iceConnectionState,
+      hasRemoteStream: !!remoteStream,
+      hasLocalStream: !!localStream,
+      connectionQuality: webrtcConnectionQuality,
+      timestamp: new Date().toISOString()
+    });
+    
+    // If we have a good connection but no remote stream, log it for debugging
+    if (connectionState === 'connected' && iceConnectionState === 'connected' && !remoteStream) {
+      console.warn('⚠️ Connection established but no remote stream received');
+    }
+  }, [connectionState, iceConnectionState, remoteStream, localStream, webrtcConnectionQuality]);
   
   // Connection stability monitoring
   useEffect(() => {
@@ -1386,6 +1438,11 @@ export default function VideoChat() {
                         <VideoOff className="h-8 w-8 text-slate-700 dark:text-white/60" />
                       </div>
                       <p className="text-slate-600 dark:text-white/70 text-xs">Waiting for video...</p>
+                      <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                        <p>Connection: {connectionState}</p>
+                        <p>ICE: {iceConnectionState}</p>
+                        <p>Quality: {webrtcConnectionQuality}</p>
+                      </div>
                     </div>
                   </div>
                 )}
