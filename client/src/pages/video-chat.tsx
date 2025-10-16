@@ -204,33 +204,48 @@ export default function VideoChat() {
           clearTimeout(remoteVideoPlayTimeoutRef.current);
         }
         
+        // Set video properties for better playback
+        const videoElement = remoteVideoRef.current;
+        videoElement.muted = true; // Mute to allow autoplay
+        videoElement.playsInline = true;
+        videoElement.controls = false;
+        videoElement.autoplay = true;
+        
         // Set the stream immediately
-        remoteVideoRef.current.srcObject = stream;
+        videoElement.srcObject = stream;
         console.log('📺 Stream set on video element');
         
         // Use a small delay to ensure the video element is ready
         remoteVideoPlayTimeoutRef.current = setTimeout(() => {
-          if (remoteVideoRef.current && remoteVideoRef.current.srcObject === stream) {
+          if (videoElement && videoElement.srcObject === stream) {
             console.log('▶️ Attempting to play remote video');
-            const playPromise = remoteVideoRef.current.play();
             
-            if (playPromise !== undefined) {
-              playPromise.then(() => {
-                console.log('✅ Remote video playing successfully');
-              }).catch(error => {
-                // Only log errors that aren't play interruption
-                if (error.name !== 'AbortError') {
-                  console.error('❌ Error playing remote video in callback:', error);
-                  addError({
-                    type: 'webrtc',
-                    message: `Failed to play remote video: ${error.message}`,
-                    recoverable: true
-                  });
-                }
-              });
-            }
+            // Multiple play attempts with retry logic
+            const attemptPlay = (attempts = 0) => {
+              if (attempts >= 3) {
+                console.error('❌ Failed to play remote video after 3 attempts');
+                return;
+              }
+              
+              console.log(`▶️ Play attempt ${attempts + 1}`);
+              const playPromise = videoElement.play();
+              
+              if (playPromise !== undefined) {
+                playPromise.then(() => {
+                  console.log('✅ Remote video playing successfully');
+                }).catch(error => {
+                  console.warn(`⚠️ Play attempt ${attempts + 1} failed:`, error);
+                  if (error.name !== 'AbortError') {
+                    // Retry after a short delay
+                    setTimeout(() => attemptPlay(attempts + 1), 300);
+                  }
+                });
+              }
+            };
+            
+            attemptPlay();
           }
-        }, 100);
+        }, 200);
       } else {
         console.warn('⚠️ Remote video element or stream not available:', {
           videoElement: !!remoteVideoRef.current,
@@ -555,6 +570,12 @@ export default function VideoChat() {
         currentSrcObject: !!remoteVideo.srcObject
       });
       
+      // Set video properties for better playback
+      remoteVideo.muted = true; // Mute to allow autoplay
+      remoteVideo.playsInline = true;
+      remoteVideo.controls = false;
+      remoteVideo.autoplay = true;
+      
       // Only set srcObject if it's different to prevent flickering
       if (remoteVideo.srcObject !== remoteStream) {
         console.log('📺 Setting remote stream in useEffect');
@@ -565,18 +586,31 @@ export default function VideoChat() {
             remoteVideo.srcObject = remoteStream;
             console.log('✅ Remote stream set in useEffect');
             
-            // Use a more robust play() approach
-            const playPromise = remoteVideo.play();
-            if (playPromise !== undefined) {
-              playPromise.then(() => {
-                console.log('✅ Remote video playing from useEffect');
-              }).catch(error => {
-                // Ignore AbortError as it's expected when new streams are loaded
-                if (error.name !== 'AbortError') {
-                  console.error('❌ Remote video play error from useEffect:', error);
-                }
-              });
-            }
+            // Force video to load and play with multiple attempts
+            const attemptPlay = (attempts = 0) => {
+              if (attempts >= 5) {
+                console.error('❌ Failed to play remote video after 5 attempts');
+                return;
+              }
+              
+              console.log(`▶️ Attempting to play remote video (attempt ${attempts + 1})`);
+              const playPromise = remoteVideo.play();
+              
+              if (playPromise !== undefined) {
+                playPromise.then(() => {
+                  console.log('✅ Remote video playing successfully');
+                }).catch(error => {
+                  console.warn(`⚠️ Play attempt ${attempts + 1} failed:`, error);
+                  if (error.name !== 'AbortError') {
+                    // Retry after a short delay
+                    setTimeout(() => attemptPlay(attempts + 1), 200);
+                  }
+                });
+              }
+            };
+            
+            // Start playing after a short delay
+            setTimeout(() => attemptPlay(), 100);
           }
         }, 100); // 100ms delay to debounce updates
 
@@ -584,7 +618,16 @@ export default function VideoChat() {
           clearTimeout(timeoutId);
         };
       } else {
-        console.log('🔄 Remote stream already set, skipping');
+        console.log('🔄 Remote stream already set, forcing play');
+        // Force play even if stream is already set
+        const playPromise = remoteVideo.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(error => {
+            if (error.name !== 'AbortError') {
+              console.error('❌ Remote video play error:', error);
+            }
+          });
+        }
       }
     } else if (remoteVideo && !remoteStream) {
       console.log('🔄 No remote stream, clearing video element');
@@ -594,6 +637,29 @@ export default function VideoChat() {
     return () => {
       // Don't clear srcObject here as it might interfere with the callback
     };
+  }, [remoteStream]);
+
+  // Fallback mechanism for remote video display
+  useEffect(() => {
+    if (remoteStream && remoteVideoRef.current) {
+      // Set up a periodic check to ensure video is playing
+      const videoCheckInterval = setInterval(() => {
+        const videoElement = remoteVideoRef.current;
+        if (videoElement && remoteStream && videoElement.srcObject === remoteStream) {
+          // Check if video is actually playing
+          if (videoElement.paused || videoElement.ended) {
+            console.log('🔄 Video is paused/ended, attempting to restart...');
+            videoElement.play().catch(error => {
+              console.warn('⚠️ Failed to restart video:', error);
+            });
+          }
+        }
+      }, 2000); // Check every 2 seconds
+
+      return () => {
+        clearInterval(videoCheckInterval);
+      };
+    }
   }, [remoteStream]);
 
   // Enhanced diagnostics monitoring
