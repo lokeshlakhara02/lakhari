@@ -909,11 +909,11 @@ export default function VideoChat() {
 
         // Wait for peer connection to be ready
         let retryCount = 0;
-        const maxRetries = 30; // Increased retries for better reliability
+        const maxRetries = 50; // Increased retries for better reliability
         
         while (!peerConnection && retryCount < maxRetries) {
           console.log(`⏰ Waiting for peer connection... (${retryCount + 1}/${maxRetries})`);
-          await new Promise(resolve => setTimeout(resolve, 200)); // Reduced wait time
+          await new Promise(resolve => setTimeout(resolve, 300)); // Increased wait time
           retryCount++;
         }
 
@@ -921,12 +921,22 @@ export default function VideoChat() {
           console.error('❌ Peer connection not ready after waiting');
           console.log('Local stream status:', !!localStream);
           console.log('Peer connection from hook:', !!peerConnection);
-          addError({
-            type: 'webrtc',
-            message: 'Peer connection not ready after initialization',
-            recoverable: true
-          });
-          return;
+          
+          // Try to force initialization
+          console.log('🔄 Attempting to force peer connection initialization...');
+          // The peer connection should be initialized by the hook
+          
+          // Wait a bit more
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          if (!peerConnection) {
+            addError({
+              type: 'webrtc',
+              message: 'Peer connection not ready after initialization',
+              recoverable: true
+            });
+            return;
+          }
         }
 
         console.log('✅ Peer connection is ready, proceeding with offer creation');
@@ -934,7 +944,7 @@ export default function VideoChat() {
         // Ensure the peer connection is in the right state
         if (peerConnection.signalingState !== 'stable') {
           console.log('⏳ Waiting for peer connection to be stable...', peerConnection.signalingState);
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise(resolve => setTimeout(resolve, 1000)); // Increased wait time
         }
 
         // Create WebRTC offer

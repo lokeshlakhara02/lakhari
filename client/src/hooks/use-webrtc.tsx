@@ -367,8 +367,11 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
   }, [createWebRTCError]);
 
   const initializePeerConnection = useCallback(() => {
+    console.log('🔄 Initializing peer connection...');
+    
     // Close existing connection if any
     if (peerConnection.current) {
+      console.log('🔄 Closing existing peer connection...');
       peerConnection.current.close();
     }
 
@@ -413,6 +416,15 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
     peerConnection.current = pc;
     setPeerConnectionState(pc);
     console.log('✅ Peer connection initialized and set');
+    
+    // Ensure the peer connection is properly set
+    setTimeout(() => {
+      if (peerConnection.current === pc) {
+        console.log('✅ Peer connection confirmed ready');
+      } else {
+        console.warn('⚠️ Peer connection not properly set');
+      }
+    }, 100);
 
     pc.onicecandidate = null; // Will be set by parent component
     
@@ -1064,32 +1076,56 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
   const createOffer = useCallback(async () => {
     // Wait for peer connection to be ready with timeout
     let attempts = 0;
-    const maxAttempts = 20;
+    const maxAttempts = 50; // Increased attempts
     
     while (!peerConnection.current && attempts < maxAttempts) {
-      console.log(`Waiting for peer connection... (${attempts + 1}/${maxAttempts})`);
-      await new Promise(resolve => setTimeout(resolve, 100));
+      console.log(`⏰ Waiting for peer connection... (${attempts + 1}/${maxAttempts})`);
+      await new Promise(resolve => setTimeout(resolve, 200)); // Increased wait time
       attempts++;
     }
     
     if (!peerConnection.current) {
-      console.error('Cannot create offer: no peer connection after waiting');
-      const webRTCError = createWebRTCError(
-        'Peer connection not ready for offer creation',
-        'create_offer',
-        'NO_PEER_CONNECTION'
-      );
-      setLastError(webRTCError);
-      return null;
+      console.error('❌ Cannot create offer: no peer connection after waiting');
+      console.log('Local stream status:', !!localStream);
+      console.log('Peer connection from hook:', !!peerConnection.current);
+      
+      // Try to initialize peer connection if it's not ready
+      console.log('🔄 Attempting to initialize peer connection...');
+      initializePeerConnection();
+      
+      // Wait a bit more after initialization
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      if (!peerConnection.current) {
+        const webRTCError = createWebRTCError(
+          'Peer connection not ready for offer creation',
+          'create_offer',
+          'NO_PEER_CONNECTION'
+        );
+        setLastError(webRTCError);
+        return null;
+      }
     }
 
     try {
       console.log('Creating WebRTC offer...');
       
+      // Ensure peer connection is ready
+      if (!peerConnection.current) {
+        console.error('❌ Peer connection is null during offer creation');
+        return null;
+      }
+      
       // Check if peer connection is in the right state
       if (peerConnection.current.signalingState !== 'stable') {
         console.log('⏳ Waiting for peer connection to be stable...', peerConnection.current.signalingState);
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Increased wait time
+      }
+      
+      // Double-check peer connection is still valid
+      if (!peerConnection.current) {
+        console.error('❌ Peer connection became null during offer creation');
+        return null;
       }
       
       // Enhanced offer creation with constraints
@@ -1457,7 +1493,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
       initializePeerConnection();
       setIsInitialized(true);
     }
-  }, [isInitialized]); // Only depend on isInitialized to prevent multiple initializations
+  }, []); // Remove dependency to prevent infinite loop
 
   // Enhanced cleanup on unmount
   useEffect(() => {
