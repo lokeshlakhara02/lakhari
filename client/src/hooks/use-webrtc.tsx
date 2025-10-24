@@ -1007,7 +1007,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
         // Wait for the peer connection to be created and in a stable state
         let attempts = 0;
         const maxAttempts = 100; // 10 seconds total
-        while ((!peerConnection.current || peerConnection.current.signalingState === 'closed') && attempts < maxAttempts) {
+        while ((!peerConnection.current || (peerConnection.current as RTCPeerConnection).signalingState === 'closed') && attempts < maxAttempts) {
           await new Promise(resolve => setTimeout(resolve, 100));
           attempts++;
         }
@@ -1017,7 +1017,9 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
           throw new Error('Failed to initialize peer connection');
         }
         
-        if (peerConnection.current.signalingState === 'closed') {
+        // Type guard to ensure peerConnection.current is not null
+        const pc = peerConnection.current as RTCPeerConnection;
+        if (pc.signalingState === 'closed') {
           console.error('❌ Peer connection is in closed state');
           throw new Error('Peer connection is in closed state');
         }

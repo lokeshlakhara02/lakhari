@@ -771,7 +771,6 @@ export default function VideoChat() {
               });
               return;
             }
-          }
             
             // Wait again for reinitialization
             attempts = 0;
