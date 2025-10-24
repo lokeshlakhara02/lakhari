@@ -588,11 +588,11 @@ export default function VideoChat() {
 
     // Prevent multiple initializations
     if (session) {
-      console.log('✅ Session already exists, skipping initialization');
+      // Session already exists
       return;
     }
 
-    console.log('🚀 Starting video chat initialization...');
+    // Starting video chat initialization
 
     // Try to recover existing session first
     const savedSessionId = sessionStorage.getItem('currentSessionId');
@@ -615,14 +615,14 @@ export default function VideoChat() {
         gender,
       };
       
-      console.log('🔍 Looking for video chat match...', { interests, gender });
+      // Looking for video chat match
       sendMessage(findMatchMessage);
     }
 
     // Initialize camera and WebRTC in parallel (non-blocking)
     const initializeWebRTC = async () => {
       try {
-        console.log('🎥 Initializing camera and WebRTC...');
+        // Initializing camera and WebRTC
         
         // Start local stream first
         await startLocalStream(true, true);
@@ -704,7 +704,7 @@ export default function VideoChat() {
     }
 
     try {
-      console.log('🎉 Match found!', data);
+      // Match found - minimal logging
       
       const newSession = {
         id: data.sessionId,
@@ -731,11 +731,11 @@ export default function VideoChat() {
 
       // Ensure WebRTC peer connection is ready with proper initialization
       if (!peerConnection || !localStream) {
-        console.log('🔧 Peer connection not ready, initializing...');
+        // Initializing peer connection
         try {
           // Ensure local stream is started first
           if (!localStream) {
-            console.log('🎥 Starting local stream for match...');
+            // Starting local stream
             await startLocalStream(true, true);
           }
           
@@ -759,7 +759,7 @@ export default function VideoChat() {
           
           // Verify peer connection is in a valid state
           if (peerConnection.signalingState === 'closed') {
-            console.log('🔄 Peer connection is closed, reinitializing...');
+            // Reinitializing closed peer connection
             try {
               await startLocalStream(true, true);
             } catch (error) {
@@ -790,7 +790,7 @@ export default function VideoChat() {
             }
           }
           
-          console.log('✅ Peer connection initialized successfully for match');
+          // Peer connection initialized
         } catch (error) {
           console.error('❌ Failed to initialize WebRTC:', error);
           addError({

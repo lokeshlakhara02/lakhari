@@ -398,7 +398,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
       { urls: 'stun:stun.internetcalls.com' }
     ];
 
-    console.log('🔗 Creating new RTCPeerConnection...');
+    // Creating new RTCPeerConnection
     
     // Create new peer connection directly (simplified approach)
     const pc = new RTCPeerConnection({
@@ -416,7 +416,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
     peerConnection.current = pc;
     setPeerConnectionState(pc);
     
-    console.log('✅ Peer connection created and set in state');
+    // Peer connection created
     
     // Set up connection state handlers with reduced logging
     pc.onconnectionstatechange = () => {
@@ -999,7 +999,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
 
       // Enhanced peer connection setup
       if (!peerConnection.current) {
-        console.log('🔗 Initializing peer connection for local stream...');
+        // Initializing peer connection
         
         // Initialize peer connection and wait for it to be ready
         initializePeerConnection();
@@ -1024,7 +1024,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
           throw new Error('Peer connection is in closed state');
         }
         
-        console.log('✅ Peer connection initialized successfully for local stream');
+        // Peer connection initialized
       }
       
 
@@ -1322,15 +1322,12 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
     }
 
     if (!candidate || !candidate.candidate) {
-      console.error('Invalid ICE candidate received:', candidate);
-      return;
+      return; // Silent ignore for invalid candidates
     }
 
     // Check if remote description is set before adding ICE candidate
     if (!peerConnection.current.remoteDescription) {
-      console.warn('Cannot add ICE candidate: remote description not set yet. Queuing candidate...');
-      
-      // Queue the candidate to be added later
+      // Queue the candidate silently
       if (!queuedIceCandidates.current) {
         queuedIceCandidates.current = [];
       }
@@ -1339,16 +1336,14 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
       // Try to add queued candidates after a short delay
       setTimeout(async () => {
         if (peerConnection.current?.remoteDescription && queuedIceCandidates.current.length > 0) {
-          console.log(`Processing ${queuedIceCandidates.current.length} queued ICE candidates`);
           const candidates = [...queuedIceCandidates.current];
           queuedIceCandidates.current = [];
           
           for (const queuedCandidate of candidates) {
             try {
               await peerConnection.current!.addIceCandidate(queuedCandidate);
-              console.log('Successfully added queued ICE candidate');
             } catch (error) {
-              console.warn('Failed to add queued ICE candidate:', error);
+              // Silent fail for queued candidates
             }
           }
         }
@@ -1363,7 +1358,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
         'Add ICE candidate',
         { maxAttempts: 3, baseDelay: 200, maxDelay: 1000, backoffMultiplier: 1.2 }
       );
-      console.log('Successfully added ICE candidate');
+      // ICE candidate added successfully
       
     } catch (error) {
       console.error('Failed to add ICE candidate:', error);

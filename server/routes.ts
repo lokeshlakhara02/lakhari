@@ -19,63 +19,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // API Routes
   app.get("/api/stats", async (_req, res) => {
     try {
-      console.log('Stats API: Starting request...');
+      // Simplified stats API with basic fallback
+      const onlineUsers = await storage.getAllOnlineUsers().catch(() => []);
+      const activeUsers = onlineUsers.length;
       
-      // Add timeout to prevent hanging
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Stats request timeout')), 5000);
+      // Get waiting users with error handling
+      const waitingTextUsers = await storage.getWaitingUsers('text', [], undefined).catch(() => []);
+      const waitingVideoUsers = await storage.getWaitingUsers('video', [], undefined).catch(() => []);
+      
+      const textChatUsers = waitingTextUsers.length;
+      const videoChatUsers = waitingVideoUsers.length;
+      const totalWaiting = textChatUsers + videoChatUsers;
+      const avgWaitTime = totalWaiting > 0 ? Math.max(5, totalWaiting * 10) : 0;
+      
+      res.json({
+        activeUsers,
+        chatsToday: activeUsers,
+        countries: Math.max(1, Math.min(50, activeUsers)),
+        textUsers: textChatUsers,
+        videoUsers: videoChatUsers,
+        avgWaitTime,
+        serverUptime: process.uptime(),
+        lastUpdated: new Date().toISOString()
       });
       
-      const statsPromise = async () => {
-        const onlineUsers = await storage.getAllOnlineUsers();
-        const activeUsers = onlineUsers.length;
-        
-        // Get real waiting users for each chat type (no userId needed for stats)
-        const waitingTextUsers = await storage.getWaitingUsers('text', [], undefined);
-        const waitingVideoUsers = await storage.getWaitingUsers('video', [], undefined);
-        
-        // Calculate real stats - no fake data
-        const now = new Date();
-        
-        // Only show real data
-        const chatsToday = activeUsers; // Show actual active users
-        const textChatUsers = waitingTextUsers.length;
-        const videoChatUsers = waitingVideoUsers.length;
-        
-        // For country diversity, only show realistic numbers based on actual users
-        const countryEstimate = Math.max(1, Math.min(50, activeUsers)); // Realistic range
-        
-        // Calculate real average wait time based on queue size
-        const totalWaiting = textChatUsers + videoChatUsers;
-        const avgWaitTime = totalWaiting > 0 ? Math.max(5, totalWaiting * 10) : 0;
-        
-        console.log('Stats API: Real data', {
-          activeUsers,
-          waitingTextUsers: textChatUsers,
-          waitingVideoUsers: videoChatUsers,
-          totalWaiting
-        });
-        
-        return {
-          activeUsers,
-          chatsToday,
-          countries: countryEstimate,
-          textUsers: textChatUsers,
-          videoUsers: videoChatUsers,
-          avgWaitTime,
-          serverUptime: process.uptime(),
-          lastUpdated: now.toISOString()
-        };
-      };
-      
-      const result = await Promise.race([statsPromise(), timeoutPromise]);
-      res.json(result);
-      
     } catch (error) {
-      console.error('Stats API error:', error);
-      
-      // Return fallback stats if database fails
-      const fallbackStats = {
+      // Silent fallback - no logging to reduce noise
+      res.json({
         activeUsers: 0,
         chatsToday: 0,
         countries: 1,
@@ -83,11 +53,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         videoUsers: 0,
         avgWaitTime: 0,
         serverUptime: process.uptime(),
-        lastUpdated: new Date().toISOString(),
-        error: 'Using fallback stats due to storage error'
-      };
-      
-      res.status(500).json(fallbackStats);
+        lastUpdated: new Date().toISOString()
+      });
     }
   });
 
