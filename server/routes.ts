@@ -31,8 +31,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const activeUsers = onlineUsers.length;
         
         // Get real waiting users for each chat type (no userId needed for stats)
-        const waitingTextUsers = await storage.getWaitingUsers('text', []);
-        const waitingVideoUsers = await storage.getWaitingUsers('video', []);
+        const waitingTextUsers = await storage.getWaitingUsers('text', [], undefined);
+        const waitingVideoUsers = await storage.getWaitingUsers('video', [], undefined);
         
         // Calculate real stats - no fake data
         const now = new Date();
@@ -198,8 +198,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/debug/storage", async (_req, res) => {
     try {
       const allUsers = await storage.getAllOnlineUsers();
-      const waitingTextUsers = await storage.getWaitingUsers('text'); // No userId needed for analytics
-      const waitingVideoUsers = await storage.getWaitingUsers('video'); // No userId needed for analytics
+      const waitingTextUsers = await storage.getWaitingUsers('text', [], undefined); // No userId needed for analytics
+      const waitingVideoUsers = await storage.getWaitingUsers('video', [], undefined); // No userId needed for analytics
       
       // Add more detailed debugging
       const now = new Date();
@@ -1213,7 +1213,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Broadcast queue updates to all waiting users
   async function broadcastQueueUpdates(chatType: string, interests: string[] = []) {
     try {
-      const waitingUsers = await storage.getWaitingUsers(chatType, interests); // No userId needed for broadcast
+      const waitingUsers = await storage.getWaitingUsers(chatType, interests, undefined); // No userId needed for broadcast
       
       for (let i = 0; i < waitingUsers.length; i++) {
         const user = waitingUsers[i];
@@ -1251,7 +1251,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return;
         }
         
-        const waitingUsers = await storage.getWaitingUsers(chatType, interests); // No userId needed for position calculation
+        const waitingUsers = await storage.getWaitingUsers(chatType, interests, undefined); // No userId needed for position calculation
         const position = waitingUsers.findIndex(u => u.id === ws.userId) + 1;
         
         if (position === 0) {

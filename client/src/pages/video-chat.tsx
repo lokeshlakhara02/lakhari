@@ -629,7 +629,7 @@ export default function VideoChat() {
         
         // Wait for peer connection to be properly initialized
         let attempts = 0;
-        const maxAttempts = 100; // 10 seconds total - increased timeout
+        const maxAttempts = 150; // 15 seconds total - increased timeout
         while (!peerConnection && attempts < maxAttempts) {
           await new Promise(resolve => setTimeout(resolve, 100));
           attempts++;
@@ -637,7 +637,28 @@ export default function VideoChat() {
         
         if (!peerConnection) {
           console.warn('⚠️ Peer connection not initialized after timeout, will retry when match is found');
+          addError({
+            type: 'webrtc',
+            message: 'Peer connection initialization timeout',
+            recoverable: true
+          });
           return;
+        }
+        
+        // Verify peer connection is in a valid state
+        if (peerConnection.signalingState === 'closed') {
+          console.warn('⚠️ Peer connection is closed, reinitializing...');
+          try {
+            await startLocalStream(true, true);
+          } catch (error) {
+            console.error('❌ Failed to reinitialize peer connection:', error);
+            addError({
+              type: 'webrtc',
+              message: 'Failed to reinitialize peer connection',
+              recoverable: true
+            });
+            return;
+          }
         }
         
         console.log('✅ Camera and WebRTC initialized successfully');
@@ -720,7 +741,7 @@ export default function VideoChat() {
           
           // Wait for peer connection to be properly initialized with longer timeout
           let attempts = 0;
-          const maxAttempts = 100; // 10 seconds total - increased timeout
+          const maxAttempts = 150; // 15 seconds total - increased timeout
           while (!peerConnection && attempts < maxAttempts) {
             await new Promise(resolve => setTimeout(resolve, 100));
             attempts++;
@@ -739,7 +760,18 @@ export default function VideoChat() {
           // Verify peer connection is in a valid state
           if (peerConnection.signalingState === 'closed') {
             console.log('🔄 Peer connection is closed, reinitializing...');
-            await startLocalStream(true, true);
+            try {
+              await startLocalStream(true, true);
+            } catch (error) {
+              console.error('❌ Failed to reinitialize peer connection:', error);
+              addError({
+                type: 'webrtc',
+                message: 'Failed to reinitialize peer connection',
+                recoverable: true
+              });
+              return;
+            }
+          }
             
             // Wait again for reinitialization
             attempts = 0;
@@ -847,7 +879,7 @@ export default function VideoChat() {
         recoverable: true
       });
     }
-  }, [peerConnection, localStream, createOffer, sendMessage, addError, startLocalStream, session]);
+  }, [peerConnection, localStream, createOffer, sendMessage, addError, startLocalStream, session, userId]);
 
   const handleWebRTCOffer = useCallback(async (data: any) => {
     // Prevent self-connection by validating sender ID
