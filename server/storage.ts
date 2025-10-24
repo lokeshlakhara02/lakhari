@@ -2,7 +2,7 @@ import { type ChatSession, type InsertChatSession, type Message, type InsertMess
 import { randomUUID } from "crypto";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { eq, and, or, desc } from "drizzle-orm";
+import { eq, and, or, desc, ne } from "drizzle-orm";
 
 export interface IStorage {
   // Chat sessions
@@ -128,7 +128,7 @@ export class MemStorage implements IStorage {
     return updatedUser;
   }
 
-  async getWaitingUsers(chatType: string, interests?: string[]): Promise<OnlineUser[]> {
+  async getWaitingUsers(chatType: string, interests?: string[], excludeUserId?: string): Promise<OnlineUser[]> {
     const allUsers = Array.from(this.onlineUsers.values());
     console.log(`Memory: Total online users: ${allUsers.length}`);
     const waitingUsers = allUsers.filter(
@@ -136,12 +136,19 @@ export class MemStorage implements IStorage {
     );
     console.log(`Memory: Found ${waitingUsers.length} waiting users for ${chatType} chat`);
 
+    // CRITICAL FIX: Always exclude the requesting user to prevent self-matching
+    const filteredUsers = excludeUserId 
+      ? waitingUsers.filter(user => user.id !== excludeUserId)
+      : waitingUsers;
+    
+    console.log(`Memory: After filtering out requesting user, ${filteredUsers.length} users remain`);
+
     if (!interests || interests.length === 0) {
-      return waitingUsers;
+      return filteredUsers;
     }
 
     // Sort by number of matching interests (descending)
-    return waitingUsers.sort((a, b) => {
+    return filteredUsers.sort((a, b) => {
       const aMatches = a.interests?.filter(interest => interests.includes(interest)).length || 0;
       const bMatches = b.interests?.filter(interest => interests.includes(interest)).length || 0;
       return bMatches - aMatches;
@@ -233,15 +240,24 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
-  async getWaitingUsers(chatType: string, interests?: string[]): Promise<OnlineUser[]> {
+  async getWaitingUsers(chatType: string, interests?: string[], excludeUserId?: string): Promise<OnlineUser[]> {
     let query = this.db.select().from(onlineUsers)
       .where(and(
         eq(onlineUsers.isWaiting, true),
         eq(onlineUsers.chatType, chatType)
       ));
 
+    // CRITICAL FIX: Exclude the requesting user to prevent self-matching
+    if (excludeUserId) {
+      query = query.where(and(
+        eq(onlineUsers.isWaiting, true),
+        eq(onlineUsers.chatType, chatType),
+        ne(onlineUsers.id, excludeUserId)
+      ));
+    }
+
     const waitingUsers = await query;
-    console.log(`Database: Found ${waitingUsers.length} waiting users for ${chatType} chat`);
+    console.log(`Database: Found ${waitingUsers.length} waiting users for ${chatType} chat (excluding user: ${excludeUserId || 'none'})`);
 
     if (!interests || interests.length === 0) {
       return waitingUsers;

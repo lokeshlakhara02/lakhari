@@ -19,48 +19,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // API Routes
   app.get("/api/stats", async (_req, res) => {
     try {
-      const onlineUsers = await storage.getAllOnlineUsers();
-      const activeUsers = onlineUsers.length;
+      console.log('Stats API: Starting request...');
       
-      // Get real waiting users for each chat type
-      const waitingTextUsers = await storage.getWaitingUsers('text', []);
-      const waitingVideoUsers = await storage.getWaitingUsers('video', []);
-      
-      // Calculate real stats - no fake data
-      const now = new Date();
-      
-      // Only show real data
-      const chatsToday = activeUsers; // Show actual active users
-      const textChatUsers = waitingTextUsers.length;
-      const videoChatUsers = waitingVideoUsers.length;
-      
-      // For country diversity, only show realistic numbers based on actual users
-      const countryEstimate = Math.max(1, Math.min(50, activeUsers)); // Realistic range
-      
-      // Calculate real average wait time based on queue size
-      const totalWaiting = textChatUsers + videoChatUsers;
-      const avgWaitTime = totalWaiting > 0 ? Math.max(5, totalWaiting * 10) : 0;
-      
-      console.log('Stats API: Real data', {
-        activeUsers,
-        waitingTextUsers: textChatUsers,
-        waitingVideoUsers: videoChatUsers,
-        totalWaiting
+      // Add timeout to prevent hanging
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Stats request timeout')), 5000);
       });
       
-      res.json({
-        activeUsers,
-        chatsToday,
-        countries: countryEstimate,
-        textUsers: textChatUsers,
-        videoUsers: videoChatUsers,
-        avgWaitTime,
-        serverUptime: process.uptime(),
-        lastUpdated: now.toISOString()
-      });
+      const statsPromise = async () => {
+        const onlineUsers = await storage.getAllOnlineUsers();
+        const activeUsers = onlineUsers.length;
+        
+        // Get real waiting users for each chat type (no userId needed for stats)
+        const waitingTextUsers = await storage.getWaitingUsers('text', []);
+        const waitingVideoUsers = await storage.getWaitingUsers('video', []);
+        
+        // Calculate real stats - no fake data
+        const now = new Date();
+        
+        // Only show real data
+        const chatsToday = activeUsers; // Show actual active users
+        const textChatUsers = waitingTextUsers.length;
+        const videoChatUsers = waitingVideoUsers.length;
+        
+        // For country diversity, only show realistic numbers based on actual users
+        const countryEstimate = Math.max(1, Math.min(50, activeUsers)); // Realistic range
+        
+        // Calculate real average wait time based on queue size
+        const totalWaiting = textChatUsers + videoChatUsers;
+        const avgWaitTime = totalWaiting > 0 ? Math.max(5, totalWaiting * 10) : 0;
+        
+        console.log('Stats API: Real data', {
+          activeUsers,
+          waitingTextUsers: textChatUsers,
+          waitingVideoUsers: videoChatUsers,
+          totalWaiting
+        });
+        
+        return {
+          activeUsers,
+          chatsToday,
+          countries: countryEstimate,
+          textUsers: textChatUsers,
+          videoUsers: videoChatUsers,
+          avgWaitTime,
+          serverUptime: process.uptime(),
+          lastUpdated: now.toISOString()
+        };
+      };
+      
+      const result = await Promise.race([statsPromise(), timeoutPromise]);
+      res.json(result);
+      
     } catch (error) {
       console.error('Stats API error:', error);
-      res.status(500).json({ error: "Failed to get stats" });
+      
+      // Return fallback stats if database fails
+      const fallbackStats = {
+        activeUsers: 0,
+        chatsToday: 0,
+        countries: 1,
+        textUsers: 0,
+        videoUsers: 0,
+        avgWaitTime: 0,
+        serverUptime: process.uptime(),
+        lastUpdated: new Date().toISOString(),
+        error: 'Using fallback stats due to storage error'
+      };
+      
+      res.status(500).json(fallbackStats);
     }
   });
 
@@ -171,8 +198,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/debug/storage", async (_req, res) => {
     try {
       const allUsers = await storage.getAllOnlineUsers();
-      const waitingTextUsers = await storage.getWaitingUsers('text');
-      const waitingVideoUsers = await storage.getWaitingUsers('video');
+      const waitingTextUsers = await storage.getWaitingUsers('text'); // No userId needed for analytics
+      const waitingVideoUsers = await storage.getWaitingUsers('video'); // No userId needed for analytics
       
       // Add more detailed debugging
       const now = new Date();
@@ -519,8 +546,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
 
     // Enhanced matching algorithm with improved scoring and faster matching
-    const waitingUsers = await storage.getWaitingUsers(chatType, interests);
-    console.log(`📊 Found ${waitingUsers.length} waiting users for ${chatType} chat:`, waitingUsers.map(u => ({ id: u.id, gender: u.gender, interests: u.interests })));
+    // CRITICAL FIX: Pass userId to storage layer to prevent self-matching at source
+    const waitingUsers = await storage.getWaitingUsers(chatType, interests, ws.userId);
+    console.log(`📊 Found ${waitingUsers.length} waiting users for ${chatType} chat (excluding self):`, waitingUsers.map(u => ({ id: u.id, gender: u.gender, interests: u.interests })));
+    
+    if (waitingUsers.length === 0) {
+      console.log(`⏳ No other users waiting for ${chatType} chat. User ${ws.userId} added to queue.`);
+      ws.send(JSON.stringify({ type: 'waiting_for_match' }));
+      return;
+    }
     
     // Calculate match score for each user
     interface MatchScore {
@@ -536,7 +570,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const now = new Date().getTime();
     
     for (const user of waitingUsers) {
-      if (user.id === ws.userId) continue;
+      // Double-check: This should never happen now, but keeping as safety
+      if (user.id === ws.userId) {
+        console.error(`🚨 CRITICAL: Found self in filtered users! User ID: ${ws.userId}`);
+        continue;
+      }
       
       let score = 0;
       const userSharedInterests = user.interests?.filter(interest => 
@@ -944,8 +982,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
 
     // Find a new match
-    const waitingUsers = await storage.getWaitingUsers(chatType, interests);
-    const potentialMatch = waitingUsers.find(user => user.id !== ws.userId);
+    const waitingUsers = await storage.getWaitingUsers(chatType, interests, ws.userId);
+    const potentialMatch = waitingUsers[0]; // First user since we already filtered out self
 
     if (potentialMatch) {
       // Create chat session
@@ -987,14 +1025,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const { chatType, interests } = message;
     
     try {
-      const waitingUsers = await storage.getWaitingUsers(chatType, interests);
-      const position = waitingUsers.findIndex(user => user.id === ws.userId) + 1;
+      // Get all waiting users including self for position calculation
+      const allWaitingUsers = await storage.getWaitingUsers(chatType, interests);
+      const position = allWaitingUsers.findIndex(user => user.id === ws.userId) + 1;
       const estimatedWait = Math.max(10, position * 15); // 15 seconds per position
       
       ws.send(JSON.stringify({
         type: 'queue_status',
         position: position || 0,
-        totalWaiting: waitingUsers.length,
+        totalWaiting: allWaitingUsers.length,
         estimatedWaitTime: estimatedWait,
         chatType
       }));
@@ -1139,7 +1178,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Broadcast queue updates to all waiting users
   async function broadcastQueueUpdates(chatType: string, interests: string[] = []) {
     try {
-      const waitingUsers = await storage.getWaitingUsers(chatType, interests);
+      const waitingUsers = await storage.getWaitingUsers(chatType, interests); // No userId needed for broadcast
       
       for (let i = 0; i < waitingUsers.length; i++) {
         const user = waitingUsers[i];
@@ -1177,7 +1216,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return;
         }
         
-        const waitingUsers = await storage.getWaitingUsers(chatType, interests);
+        const waitingUsers = await storage.getWaitingUsers(chatType, interests); // No userId needed for position calculation
         const position = waitingUsers.findIndex(u => u.id === ws.userId) + 1;
         
         if (position === 0) {
