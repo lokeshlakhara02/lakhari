@@ -109,6 +109,7 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
   const adaptiveBitrateEnabled = useRef(options?.enableAdaptiveBitrate !== false);
   const networkAdaptationEnabled = useRef(options?.enableNetworkAdaptation !== false);
   const automaticRecoveryEnabled = useRef(options?.enableAutomaticRecovery !== false);
+  const queuedIceCandidates = useRef<RTCIceCandidateInit[]>([]);
 
   // Check current permission states
   const checkPermissions = useCallback(async () => {
@@ -1209,6 +1210,8 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
         { maxAttempts: 3, baseDelay: 500, maxDelay: 2000, backoffMultiplier: 1.5 }
       );
       
+      // Process any queued ICE candidates after setting remote description
+      await processQueuedIceCandidates();
       
       const answerOptions = {
         voiceActivityDetection: true
@@ -1269,6 +1272,9 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
         { maxAttempts: 3, baseDelay: 500, maxDelay: 2000, backoffMultiplier: 1.5 }
       );
       
+      // Process any queued ICE candidates after setting remote description
+      await processQueuedIceCandidates();
+      
       setLastError(null);
     } catch (error) {
       console.error('Failed to handle answer:', error);
@@ -1281,6 +1287,25 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
     }
   }, [createWebRTCError, retryOperation]);
 
+  const processQueuedIceCandidates = useCallback(async () => {
+    if (!peerConnection.current || queuedIceCandidates.current.length === 0) {
+      return;
+    }
+
+    console.log(`Processing ${queuedIceCandidates.current.length} queued ICE candidates`);
+    const candidates = [...queuedIceCandidates.current];
+    queuedIceCandidates.current = [];
+    
+    for (const candidate of candidates) {
+      try {
+        await peerConnection.current!.addIceCandidate(candidate);
+        console.log('Successfully added queued ICE candidate');
+      } catch (error) {
+        console.warn('Failed to add queued ICE candidate:', error);
+      }
+    }
+  }, []);
+
   const addIceCandidate = useCallback(async (candidate: RTCIceCandidateInit) => {
     if (!peerConnection.current) {
       console.error('Cannot add ICE candidate: no peer connection');
@@ -1292,13 +1317,44 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
       return;
     }
 
-    try {
+    // Check if remote description is set before adding ICE candidate
+    if (!peerConnection.current.remoteDescription) {
+      console.warn('Cannot add ICE candidate: remote description not set yet. Queuing candidate...');
       
+      // Queue the candidate to be added later
+      if (!queuedIceCandidates.current) {
+        queuedIceCandidates.current = [];
+      }
+      queuedIceCandidates.current.push(candidate);
+      
+      // Try to add queued candidates after a short delay
+      setTimeout(async () => {
+        if (peerConnection.current?.remoteDescription && queuedIceCandidates.current.length > 0) {
+          console.log(`Processing ${queuedIceCandidates.current.length} queued ICE candidates`);
+          const candidates = [...queuedIceCandidates.current];
+          queuedIceCandidates.current = [];
+          
+          for (const queuedCandidate of candidates) {
+            try {
+              await peerConnection.current!.addIceCandidate(queuedCandidate);
+              console.log('Successfully added queued ICE candidate');
+            } catch (error) {
+              console.warn('Failed to add queued ICE candidate:', error);
+            }
+          }
+        }
+      }, 1000);
+      
+      return;
+    }
+
+    try {
       await retryOperation(
         () => peerConnection.current!.addIceCandidate(candidate),
         'Add ICE candidate',
         { maxAttempts: 3, baseDelay: 200, maxDelay: 1000, backoffMultiplier: 1.2 }
       );
+      console.log('Successfully added ICE candidate');
       
     } catch (error) {
       console.error('Failed to add ICE candidate:', error);

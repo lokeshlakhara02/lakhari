@@ -856,6 +856,12 @@ export default function VideoChat() {
       return;
     }
 
+    // Validate session ID matches current session
+    if (session && session.id !== data.sessionId) {
+      console.warn(`Session ID mismatch: received offer for ${data.sessionId}, current session is ${session.id}`);
+      return;
+    }
+
     // Ensure peer connection is ready before handling offer
     if (!peerConnection) {
       try {
@@ -939,6 +945,12 @@ export default function VideoChat() {
       return;
     }
 
+    // Validate session ID matches current session
+    if (session && session.id !== data.sessionId) {
+      console.warn(`Session ID mismatch: received answer for ${data.sessionId}, current session is ${session.id}`);
+      return;
+    }
+
     if (!handleAnswer || !data?.answer) {
       addError({
         type: 'webrtc',
@@ -994,6 +1006,12 @@ export default function VideoChat() {
     // Prevent self-connection by validating sender ID
     if (data.senderId === userId) {
       console.warn('Prevented self-connection: received ICE candidate from self');
+      return;
+    }
+
+    // Validate session ID matches current session
+    if (session && session.id !== data.sessionId) {
+      console.warn(`Session ID mismatch: received ICE candidate for ${data.sessionId}, current session is ${session.id}`);
       return;
     }
 

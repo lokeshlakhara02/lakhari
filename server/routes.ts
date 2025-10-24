@@ -402,6 +402,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           case 'webrtc_offer':
           case 'webrtc_answer':
           case 'webrtc_ice_candidate':
+          case 'webrtc_recovery':
             await handleWebRTCSignaling(ws, message);
             break;
           case 'end_chat':
@@ -904,22 +905,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   async function handleWebRTCSignaling(ws: WebSocketWithUserId, message: any) {
-    if (!ws.userId) return;
+    if (!ws.userId) {
+      console.log('WebRTC signaling: No userId found for WebSocket');
+      return;
+    }
 
-    const { sessionId, ...signalData } = message;
+    const { sessionId, type, ...signalData } = message;
+    console.log(`WebRTC signaling: ${type} from user ${ws.userId} for session ${sessionId}`);
+    
+    if (!sessionId) {
+      console.warn('WebRTC signaling: No sessionId provided');
+      ws.send(JSON.stringify({ type: 'error', message: 'Session ID required for WebRTC signaling' }));
+      return;
+    }
+
     const session = await storage.getChatSession(sessionId);
-    if (!session) return;
+    if (!session) {
+      console.warn(`WebRTC signaling: Session ${sessionId} not found`);
+      ws.send(JSON.stringify({ type: 'error', message: 'Session not found' }));
+      return;
+    }
+
+    // Validate that the user is part of this session
+    if (session.user1Id !== ws.userId && session.user2Id !== ws.userId) {
+      console.warn(`WebRTC signaling: User ${ws.userId} not authorized for session ${sessionId}`);
+      ws.send(JSON.stringify({ type: 'error', message: 'Not authorized for this session' }));
+      return;
+    }
 
     const partnerId = session.user1Id === ws.userId ? session.user2Id : session.user1Id;
-    if (!partnerId) return;
-    const partnerSocket = findSocketByUserId(partnerId);
-
-    if (partnerSocket) {
-      partnerSocket.send(JSON.stringify({
-        ...message,
-        fromUserId: ws.userId,
-      }));
+    if (!partnerId) {
+      console.warn(`WebRTC signaling: No partner found for session ${sessionId}`);
+      return;
     }
+
+    const partnerSocket = findSocketByUserId(partnerId);
+    if (!partnerSocket) {
+      console.warn(`WebRTC signaling: Partner ${partnerId} not connected`);
+      ws.send(JSON.stringify({ type: 'error', message: 'Partner not connected' }));
+      return;
+    }
+
+    // Add timestamp to the message
+    const signalingMessage = {
+      ...message,
+      fromUserId: ws.userId,
+      timestamp: Date.now()
+    };
+
+    console.log(`WebRTC signaling: Forwarding ${type} to partner ${partnerId}`);
+    partnerSocket.send(JSON.stringify(signalingMessage));
   }
 
   async function handleEndChat(ws: WebSocketWithUserId, message: any) {
