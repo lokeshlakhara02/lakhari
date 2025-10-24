@@ -1,14 +1,44 @@
 import type { Request, Response, NextFunction } from 'express';
 
-// Simple in-memory rate limiter
+// Enhanced rate limiter with multiple tiers
 interface RateLimitEntry {
   count: number;
   resetTime: number;
+  lastRequest: number;
+  violations: number;
+}
+
+interface RateLimitConfig {
+  windowMs: number;
+  maxRequests: number;
+  blockDuration: number;
+  maxViolations: number;
 }
 
 const rateLimitStore = new Map<string, RateLimitEntry>();
-const RATE_LIMIT_WINDOW = 15 * 60 * 1000; // 15 minutes in milliseconds
-const RATE_LIMIT_MAX_REQUESTS = parseInt(process.env.RATE_LIMIT_MAX || '1000', 10);
+const blockedIPs = new Map<string, number>(); // IP -> blockUntil timestamp
+
+// Different rate limits for different endpoints
+const rateLimitConfigs: Record<string, RateLimitConfig> = {
+  default: {
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    maxRequests: parseInt(process.env.RATE_LIMIT_MAX || '100', 10),
+    blockDuration: 30 * 60 * 1000, // 30 minutes
+    maxViolations: 3
+  },
+  websocket: {
+    windowMs: 60 * 1000, // 1 minute
+    maxRequests: 20,
+    blockDuration: 10 * 60 * 1000, // 10 minutes
+    maxViolations: 2
+  },
+  api: {
+    windowMs: 5 * 60 * 1000, // 5 minutes
+    maxRequests: 50,
+    blockDuration: 15 * 60 * 1000, // 15 minutes
+    maxViolations: 3
+  }
+};
 
 // Cleanup old entries every 5 minutes
 setInterval(() => {

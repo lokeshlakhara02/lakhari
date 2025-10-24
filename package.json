@@ -7,7 +7,7 @@
     "dev": "cross-env NODE_ENV=development tsx server/index.ts",
     "build": "vite build",
     "start": "npx tsx server/index.ts",
-    "railway:start": "node scripts/railway-start.js",
+    "railway:start": "node railway-start.js",
     "railway:build": "npm run build && npm prune --production",
     "railway:optimize": "node scripts/railway-optimize.js",
     "check": "tsc",

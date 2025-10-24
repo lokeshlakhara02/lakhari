@@ -141,14 +141,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Health check endpoint
+  // Health check endpoint optimized for Railway
   app.get("/api/health", (_req, res) => {
-    res.json({ 
-      status: "ok", 
+    const memoryUsage = process.memoryUsage();
+    const memoryMB = memoryUsage.heapUsed / 1024 / 1024;
+    const isHealthy = memoryMB < 400; // Railway free tier limit with buffer
+    
+    res.status(isHealthy ? 200 : 503).json({
+      status: isHealthy ? 'healthy' : 'degraded',
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
-      memory: process.memoryUsage(),
-      connections: wss.clients.size
+      memory: {
+        used: memoryMB,
+        total: memoryUsage.heapTotal / 1024 / 1024,
+        percentage: (memoryMB / 512) * 100 // Railway free tier is 512MB
+      },
+      connections: wss.clients.size,
+      version: process.env.npm_package_version || '1.0.0',
+      railway: {
+        environment: process.env.RAILWAY_ENVIRONMENT || 'development',
+        optimization: process.env.RAILWAY_OPTIMIZATION === 'true',
+        memoryLimit: 512,
+        currentUsage: memoryMB
+      }
     });
   });
 

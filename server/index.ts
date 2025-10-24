@@ -3,6 +3,7 @@ import cors from "cors";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { rateLimiter, securityHeaders, logError } from "./middleware";
+import { railwayOptimizer } from "./railway-optimizer";
 // import compression from "compression";
 // import helmet from "helmet";
 
@@ -84,6 +85,13 @@ app.use((req, res, next) => {
 
   res.on("finish", () => {
     const duration = Date.now() - start;
+    
+    // Track metrics for Railway optimization
+    railwayOptimizer.trackNetworkRequest();
+    if (res.statusCode >= 400) {
+      railwayOptimizer.trackError();
+    }
+    
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
@@ -95,6 +103,7 @@ app.use((req, res, next) => {
       }
 
       log(logLine);
+      railwayOptimizer.trackLog();
     }
   });
 

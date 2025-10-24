@@ -850,6 +850,12 @@ export default function VideoChat() {
   }, [peerConnection, localStream, createOffer, sendMessage, addError, startLocalStream, session]);
 
   const handleWebRTCOffer = useCallback(async (data: any) => {
+    // Prevent self-connection by validating sender ID
+    if (data.senderId === userId) {
+      console.warn('Prevented self-connection: received WebRTC offer from self');
+      return;
+    }
+
     // Ensure peer connection is ready before handling offer
     if (!peerConnection) {
       try {
@@ -927,6 +933,12 @@ export default function VideoChat() {
   }, [peerConnection, createAnswer, sendMessage, addError]);
 
   const handleWebRTCAnswer = useCallback(async (data: any) => {
+    // Prevent self-connection by validating sender ID
+    if (data.senderId === userId) {
+      console.warn('Prevented self-connection: received WebRTC answer from self');
+      return;
+    }
+
     if (!handleAnswer || !data?.answer) {
       addError({
         type: 'webrtc',
@@ -979,6 +991,12 @@ export default function VideoChat() {
   }, [handleAnswer, addError]);
 
   const handleIceCandidate = useCallback(async (data: any) => {
+    // Prevent self-connection by validating sender ID
+    if (data.senderId === userId) {
+      console.warn('Prevented self-connection: received ICE candidate from self');
+      return;
+    }
+
     // Ensure peer connection is ready before handling ICE candidate
     if (!peerConnection) {
       try {
@@ -1198,6 +1216,12 @@ export default function VideoChat() {
       onMessage('message_delivered', (data: any) => {
         // Handle message delivery confirmation silently
       });
+
+      onMessage('partner_typing', (data: any) => {
+        // Handle typing indicator for video chat text messages
+        // This could be used to show typing indicator in text chat area
+        console.log('Partner typing:', data.isTyping);
+      });
       
       onMessage('gender_updated', (data: any) => {
     });
@@ -1220,6 +1244,7 @@ export default function VideoChat() {
         offMessage('message_received');
         offMessage('message_sent');
         offMessage('message_delivered');
+        offMessage('partner_typing');
       offMessage('gender_updated');
       }
     };

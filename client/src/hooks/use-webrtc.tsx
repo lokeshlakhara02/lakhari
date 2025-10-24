@@ -526,6 +526,42 @@ export function useWebRTC(onRemoteStream?: (stream: MediaStream) => void, option
           return;
         }
         
+        // Prevent self-connection by checking if this is the local stream
+        if (localStream && localStream.id === stream.id) {
+          if (process.env.NODE_ENV === 'development') {
+            console.warn('Prevented self-connection: received own local stream');
+          }
+          return;
+        }
+        
+        // Additional validation: check if stream tracks match local stream tracks
+        if (localStream) {
+          const localVideoTracks = localStream.getVideoTracks();
+          const localAudioTracks = localStream.getAudioTracks();
+          
+          // Check if any tracks match (indicating self-connection)
+          const hasMatchingVideoTrack = videoTracks.some(remoteTrack => 
+            localVideoTracks.some(localTrack => 
+              localTrack.label === remoteTrack.label && 
+              localTrack.kind === remoteTrack.kind
+            )
+          );
+          
+          const hasMatchingAudioTrack = audioTracks.some(remoteTrack => 
+            localAudioTracks.some(localTrack => 
+              localTrack.label === remoteTrack.label && 
+              localTrack.kind === remoteTrack.kind
+            )
+          );
+          
+          if (hasMatchingVideoTrack || hasMatchingAudioTrack) {
+            if (process.env.NODE_ENV === 'development') {
+              console.warn('Prevented self-connection: stream tracks match local tracks');
+            }
+            return;
+          }
+        }
+        
         // Clear any existing timeout
         if (streamUpdateTimeout.current) {
           clearTimeout(streamUpdateTimeout.current);

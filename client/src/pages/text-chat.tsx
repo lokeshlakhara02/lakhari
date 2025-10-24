@@ -160,21 +160,41 @@ export default function TextChat() {
     });
 
     onMessage('message_received', (data) => {
-      const message: Message = {
-        ...data.message,
-        timestamp: new Date(data.message.timestamp),
-        isOwn: false,
-      };
-      setMessages(prev => [...prev, message]);
+      // Only add message if it's from another user
+      if (data.message.senderId !== userId) {
+        const message: Message = {
+          id: data.message.id || Date.now().toString(),
+          content: data.message.content,
+          senderId: data.message.senderId || 'unknown',
+          timestamp: new Date(data.message.timestamp || Date.now()),
+          isOwn: false, // Always false for received messages
+          attachments: data.message.attachments || [],
+          hasEmoji: data.message.hasEmoji || false,
+        };
+        setMessages(prev => [...prev, message]);
+      }
     });
 
     onMessage('message_sent', (data) => {
-      const message: Message = {
-        ...data.message,
-        timestamp: new Date(data.message.timestamp),
-        isOwn: true,
-      };
-      setMessages(prev => [...prev, message]);
+      // Only add message if it's from the current user
+      if (data.message.senderId === userId) {
+        const message: Message = {
+          id: data.message.id || Date.now().toString(),
+          content: data.message.content,
+          senderId: data.message.senderId || userId || 'self',
+          timestamp: new Date(data.message.timestamp || Date.now()),
+          isOwn: true, // Always true for sent messages
+          attachments: data.message.attachments || [],
+          hasEmoji: data.message.hasEmoji || false,
+        };
+        setMessages(prev => [...prev, message]);
+      }
+    });
+
+    onMessage('message_delivered', (data) => {
+      // Handle message delivery confirmation silently
+      // Update message status if needed in the future
+      console.log('Message delivered:', data.messageId);
     });
 
     onMessage('partner_typing', (data) => {
@@ -196,6 +216,7 @@ export default function TextChat() {
       offMessage('match_found');
       offMessage('message_received');
       offMessage('message_sent');
+      offMessage('message_delivered');
       offMessage('partner_typing');
       offMessage('chat_ended');
       offMessage('session_recovered');
